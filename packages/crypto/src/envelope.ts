@@ -31,24 +31,20 @@ export async function encrypt(input: EncryptInput): Promise<Envelope> {
 
 export interface DecryptInput {
   key: CryptoKey;
-  iv: ArrayBuffer | ArrayBufferView;
-  ciphertext: ArrayBuffer | ArrayBufferView;
+  iv: BufferSource;
+  ciphertext: BufferSource;
   aad: string;
 }
 
 export async function decrypt(input: DecryptInput): Promise<string> {
-  // Normalize inputs to ensure they're compatible with crypto.subtle
-  const iv = input.iv instanceof ArrayBuffer ? input.iv : (input.iv.buffer as ArrayBuffer);
-  const ciphertext = input.ciphertext instanceof ArrayBuffer ? input.ciphertext : (input.ciphertext.buffer as ArrayBuffer);
-
   const plain = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv,
+      iv: input.iv,
       additionalData: encoder.encode(input.aad),
     },
     input.key,
-    ciphertext,
+    input.ciphertext,
   );
   return decoder.decode(plain);
 }
