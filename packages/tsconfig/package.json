@@ -1,0 +1,6 @@
+{
+  "name": "@uniclip/tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "files": ["base.json", "library.json", "node.json", "svelte.json"]
+}
