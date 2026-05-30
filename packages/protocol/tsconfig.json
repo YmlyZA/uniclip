@@ -1,0 +1,4 @@
+{
+  "extends": "@uniclip/tsconfig/library.json",
+  "include": ["src/**/*.ts"]
+}
