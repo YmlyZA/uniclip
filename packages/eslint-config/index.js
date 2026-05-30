@@ -1,7 +1,8 @@
+import { defineConfig } from "eslint/config";
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-export default tseslint.config(
+export default defineConfig([
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -25,4 +26,4 @@ export default tseslint.config(
       "no-console": "off",
     },
   },
-);
+]);
