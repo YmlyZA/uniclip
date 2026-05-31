@@ -1,7 +1,12 @@
 import type { Hono } from "hono";
 import { createBunWebSocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
-import { CLOSE_CODES, type ServerFrame } from "@uniclip/protocol";
+import {
+  CLOSE_CODES,
+  ClipboardFrameSchema,
+  MAX_FRAME_BYTES,
+  type ServerFrame,
+} from "@uniclip/protocol";
 import type { RoomStore } from "./rooms";
 
 export function attachWebSocket(app: Hono, store: RoomStore) {
@@ -46,8 +51,29 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
             peerCount: room.sockets.size,
           });
         },
-        onMessage(_ev, _ws) {
-          // wired in a later task
+        onMessage(ev, ws) {
+          const raw = ws.raw as ServerWebSocket<{ roomId: string }> | undefined;
+          if (!raw) return;
+          const room = store.get(raw.data.roomId);
+          if (!room) return;
+
+          const data = typeof ev.data === "string" ? ev.data : "";
+          if (Buffer.byteLength(data, "utf8") > MAX_FRAME_BYTES) {
+            raw.close(CLOSE_CODES.TOO_LARGE, "TOO_LARGE");
+            return;
+          }
+
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            return; // silently drop malformed JSON
+          }
+          const result = ClipboardFrameSchema.safeParse(parsed);
+          if (!result.success) return;
+
+          store.touch(room.id);
+          broadcast(room.sockets, raw, result.data);
         },
       };
     }),
