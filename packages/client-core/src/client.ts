@@ -4,21 +4,24 @@ import { deriveKey, encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@u
 import { parseRoomUrl, MODE_B_SALT, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
 
+export type Status = "connecting" | "connected" | "disconnected" | "reconnecting";
+
 export type ClientEvent =
-  | { kind: "status"; value: "connecting" | "connected" | "disconnected" | "reconnecting" }
+  | { kind: "status"; value: Status }
   | { kind: "clip"; text: string; ts: number }
   | { kind: "peer"; count: number }
+  | { kind: "room"; backfill: boolean }
   | { kind: "error"; code: string; message: string };
 
-type Listener<K extends ClientEvent["kind"]> = (
-  arg: K extends "status"
-    ? "connecting" | "connected" | "disconnected" | "reconnecting"
-    : K extends "clip"
-      ? string
-      : K extends "peer"
-        ? number
-        : { code: string; message: string },
-) => void;
+// Per-event handler signatures. `clip` carries the frame's original `ts` so
+// backfilled clips sort by when they were sent, not when they were received.
+export interface EventHandlers {
+  status: (value: Status) => void;
+  clip: (text: string, ts: number) => void;
+  peer: (count: number) => void;
+  room: (backfill: boolean) => void;
+  error: (err: { code: string; message: string }) => void;
+}
 
 export interface UniclipClientOptions {
   roomUrl: string;
@@ -30,7 +33,7 @@ export class UniclipClient {
   private readonly relayBase: string;
   private key: CryptoKey | null = null;
   private ws: WebSocket | null = null;
-  private listeners = new Map<ClientEvent["kind"], Set<Listener<ClientEvent["kind"]>>>();
+  private listeners = new Map<keyof EventHandlers, Set<(...args: never[]) => void>>();
   private replay = new ReplaySet();
   private backoff = new Backoff({ baseMs: 1000, maxMs: 30_000, jitter: 0.2 });
   private disposed = false;
@@ -42,9 +45,13 @@ export class UniclipClient {
     this.relayBase = opts.relayBase.replace(/\/$/, "");
   }
 
-  on<K extends ClientEvent["kind"]>(kind: K, cb: Listener<K>): void {
-    if (!this.listeners.has(kind)) this.listeners.set(kind, new Set());
-    this.listeners.get(kind)!.add(cb as Listener<ClientEvent["kind"]>);
+  on<K extends keyof EventHandlers>(kind: K, cb: EventHandlers[K]): void {
+    let set = this.listeners.get(kind);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(kind, set);
+    }
+    set.add(cb as (...args: never[]) => void);
   }
 
   private emit(evt: ClientEvent): void {
@@ -52,10 +59,11 @@ export class UniclipClient {
     if (!set) return;
     for (const cb of set) {
       switch (evt.kind) {
-        case "status": cb(evt.value as never); break;
-        case "clip": cb(evt.text as never); break;
-        case "peer": cb(evt.count as never); break;
-        case "error": cb({ code: evt.code, message: evt.message } as never); break;
+        case "status": (cb as EventHandlers["status"])(evt.value); break;
+        case "clip": (cb as EventHandlers["clip"])(evt.text, evt.ts); break;
+        case "peer": (cb as EventHandlers["peer"])(evt.count); break;
+        case "room": (cb as EventHandlers["room"])(evt.backfill); break;
+        case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
       }
     }
   }
@@ -109,6 +117,7 @@ export class UniclipClient {
       case "hello":
         this.emit({ kind: "status", value: "connected" });
         this.emit({ kind: "peer", count: frame.peerCount });
+        this.emit({ kind: "room", backfill: frame.backfill });
         return;
       case "peer-joined":
       case "peer-left":
