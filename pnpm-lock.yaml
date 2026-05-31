@@ -15,6 +15,34 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/client-core:
+    dependencies:
+      '@uniclip/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@uniclip/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@uniclip/room-code':
+        specifier: workspace:*
+        version: link:../room-code
+      ulid:
+        specifier: ^2.3.0
+        version: 2.4.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@uniclip/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9
+
   packages/crypto:
     devDependencies:
       '@uniclip/tsconfig':
@@ -941,6 +969,10 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  ulid@2.4.0:
+    resolution: {integrity: sha512-fIRiVTJNcSRmXKPZtGzFQv9WRrZ3M9eoptl/teFJvjOzmpU+/K/JH6HZ8deBfb5vMEpicJcLn7JmvdknlMq7Zg==}
+    hasBin: true
+
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
@@ -1813,6 +1845,8 @@ snapshots:
       - supports-color
 
   typescript@5.9.3: {}
+
+  ulid@2.4.0: {}
 
   uri-js@4.4.1:
     dependencies:
