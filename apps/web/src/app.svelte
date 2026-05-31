@@ -1,8 +1,20 @@
 <script lang="ts">
-  let now = $state(new Date().toLocaleTimeString());
+  import { onMount } from "svelte";
+  import { currentRoute, type Route } from "./lib/router";
+  import Landing from "./routes/landing.svelte";
+  import Room from "./routes/room.svelte";
+
+  let route: Route = $state(currentRoute());
+
+  onMount(() => {
+    const onPop = () => (route = currentRoute());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  });
 </script>
 
-<main class="p-8">
-  <h1 class="text-2xl font-semibold">Uniclip</h1>
-  <p class="text-sm text-gray-500">scaffold {now}</p>
-</main>
+{#if route.name === "landing"}
+  <Landing />
+{:else if route.name === "room"}
+  <Room room={route.room} />
+{/if}
