@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { z } from "zod";
 import type { RoomStore } from "./rooms";
 import type { Metrics } from "./metrics";
@@ -16,6 +17,11 @@ const CreateRoomBody = z.object({ mode: z.enum(["A", "B"]) });
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // The SPA may be served from a different origin than the relay (local dev,
+  // E2E, or a separately-hosted front end). The relay is zero-knowledge and
+  // uses no cookies/auth, so permissive CORS on the JSON API is safe.
+  app.use("/api/*", cors());
 
   app.get("/api/health", (c) =>
     c.json({
