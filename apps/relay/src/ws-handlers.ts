@@ -8,9 +8,12 @@ import {
   type ServerFrame,
 } from "@uniclip/protocol";
 import type { RoomStore } from "./rooms";
+import { SlidingWindowLimiter } from "./rate-limit";
 
 export function attachWebSocket(app: Hono, store: RoomStore) {
   const { upgradeWebSocket, websocket } = createBunWebSocket<{ roomId: string }>();
+  const frameLimiter = new SlidingWindowLimiter(20, 10_000);
+  const socketKeys = new WeakMap<ServerWebSocket<{ roomId: string }>, string>();
 
   app.get(
     "/ws/:roomId",
@@ -67,10 +70,27 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
           try {
             parsed = JSON.parse(data);
           } catch {
-            return; // silently drop malformed JSON
+            return;
           }
           const result = ClipboardFrameSchema.safeParse(parsed);
           if (!result.success) return;
+
+          let key = socketKeys.get(raw);
+          if (!key) {
+            key = crypto.randomUUID();
+            socketKeys.set(raw, key);
+          }
+          if (!frameLimiter.allow(key)) {
+            raw.send(
+              JSON.stringify({
+                type: "error",
+                code: "RATE_LIMIT",
+                message: "too many frames",
+              } satisfies ServerFrame),
+            );
+            raw.close(CLOSE_CODES.RATE_LIMIT, "RATE_LIMIT");
+            return;
+          }
 
           store.touch(room.id);
           broadcast(room.sockets, raw, result.data);

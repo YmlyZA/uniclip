@@ -89,4 +89,18 @@ describe("clip fan-out", () => {
     expect(closed).toBe(false);
     a.close();
   });
+
+  it("closes with 4429 after exceeding the rate limit", async () => {
+    const id = await mintRoom();
+    const a = new WebSocket(`${baseWs}/ws/${id}`);
+    await new Promise((r) => (a.onopen = () => r(null)));
+    await new Promise((r) => setTimeout(r, 20));
+    let closedCode: number | null = null;
+    a.onclose = (e) => { closedCode = e.code; };
+    for (let i = 0; i < 25; i++) {
+      a.send(JSON.stringify(makeFrame()));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    expect(closedCode).toBe(4429);
+  });
 });
