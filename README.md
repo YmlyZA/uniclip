@@ -49,7 +49,7 @@ docker run --rm -p 3000:3000 uniclip:dev
 # → http://localhost:3000 serves the API, the SPA, and /api/metrics
 ```
 
-Deploy to [Fly.io](https://fly.io) with the included `fly.toml` (`fly launch` / `fly deploy`). CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push, and deploys `main` to Fly when `FLY_API_TOKEN` is set.
+For a self-hosted VPS, see [`deploy/`](deploy/README.md): a `docker-compose.yml` that puts the relay behind [Caddy](https://caddyserver.com) for automatic HTTPS, plus a standalone Caddyfile snippet for hosts already running Caddy. **HTTPS is required off `localhost`** — the clipboard API only works in a secure context. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
 
 ## Repository layout
 

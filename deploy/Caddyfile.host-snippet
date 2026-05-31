@@ -1,0 +1,16 @@
+# Standalone reference for a VPS that ALREADY runs Caddy on the host.
+# Don't use this with docker-compose.yml — that ships its own Caddyfile.
+#
+# Run the relay container bound to loopback only:
+#
+#   docker build -t uniclip:latest .        # from the repo root
+#   docker run -d --restart=unless-stopped \
+#     -p 127.0.0.1:3000:3000 --name uniclip uniclip:latest
+#
+# Then add the block below to your existing /etc/caddy/Caddyfile (replace the
+# domain) and `sudo systemctl reload caddy`. reverse_proxy forwards the /ws/*
+# WebSocket upgrade automatically; the relay serves SPA + API + WS on one port.
+clip.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}

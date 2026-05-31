@@ -1,0 +1,40 @@
+# Production deploy for a VPS: the relay behind Caddy with automatic HTTPS.
+#
+#   cd deploy
+#   DOMAIN=clip.example.com docker compose up -d --build
+#
+# Point clip.example.com's A/AAAA record at this host first. Caddy then obtains
+# and renews a Let's Encrypt certificate for $DOMAIN with no further config.
+# The relay is in-memory and stateless (rooms GC by idle/age, nothing is
+# persisted), so this two-service stack is the entire deployment.
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: uniclip:latest
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      LOG_LEVEL: info
+    expose:
+      - "3000" # internal to the compose network only; never published to the host
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80" # required for the ACME HTTP challenge + HTTP->HTTPS redirect
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN, e.g. DOMAIN=clip.example.com docker compose up -d}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # persists issued certs across restarts — do not delete
+      - caddy_config:/config
+    depends_on:
+      - relay
+
+volumes:
+  caddy_data:
+  caddy_config:

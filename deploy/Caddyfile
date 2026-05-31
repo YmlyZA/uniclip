@@ -1,0 +1,10 @@
+# Caddyfile for deploy/docker-compose.yml. $DOMAIN is injected from the compose
+# environment. Caddy's reverse_proxy transparently forwards WebSocket upgrades,
+# so the relay's /ws/* live connections work with no extra directives.
+#
+# uniclip is single-origin: the relay serves the SPA, the JSON API, and the
+# WebSocket all on :3000, so one reverse_proxy line covers everything.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy relay:3000
+}
