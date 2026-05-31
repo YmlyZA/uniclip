@@ -54,6 +54,9 @@ importers:
       '@uniclip/client-core':
         specifier: workspace:*
         version: link:../../packages/client-core
+      '@uniclip/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@uniclip/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

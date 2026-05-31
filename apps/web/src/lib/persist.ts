@@ -1,0 +1,79 @@
+import { encrypt, decrypt, toBase64, fromBase64 } from "@uniclip/crypto";
+
+export interface Item {
+  id: string;
+  text: string;
+  ts: number;
+}
+
+export interface PersistOptions {
+  roomId: string;
+  key: CryptoKey;
+  cap: number;
+}
+
+export class PersistedItems {
+  private items: Item[] = [];
+  private readonly storageKey: string;
+  private readonly opts: PersistOptions;
+  private loaded = false;
+
+  constructor(opts: PersistOptions) {
+    this.opts = opts;
+    this.storageKey = `uniclip:items:${opts.roomId}`;
+  }
+
+  async add(item: Item): Promise<void> {
+    if (!this.loaded) await this.load();
+    this.items.push(item);
+    if (this.items.length > this.opts.cap) {
+      this.items.splice(0, this.items.length - this.opts.cap);
+    }
+    await this.save();
+  }
+
+  async load(): Promise<Item[]> {
+    if (this.loaded) return this.items;
+    this.loaded = true;
+    const raw = localStorage.getItem(this.storageKey);
+    if (!raw) return this.items;
+    try {
+      const env = JSON.parse(raw) as { iv: string; ciphertext: string };
+      const plain = await decrypt({
+        key: this.opts.key,
+        iv: fromBase64(env.iv),
+        ciphertext: fromBase64(env.ciphertext),
+        aad: `persist:${this.opts.roomId}`,
+      });
+      this.items = JSON.parse(plain) as Item[];
+    } catch {
+      this.items = [];
+    }
+    return this.items;
+  }
+
+  clear(): void {
+    this.items = [];
+    localStorage.removeItem(this.storageKey);
+  }
+
+  private async save(): Promise<void> {
+    const env = await encrypt({
+      key: this.opts.key,
+      plaintext: JSON.stringify(this.items),
+      aad: `persist:${this.opts.roomId}`,
+    });
+    try {
+      localStorage.setItem(
+        this.storageKey,
+        JSON.stringify({ iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) }),
+      );
+    } catch {
+      // QuotaExceededError → drop oldest and retry once
+      if (this.items.length > 1) {
+        this.items.shift();
+        await this.save();
+      }
+    }
+  }
+}

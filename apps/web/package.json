@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@uniclip/client-core": "workspace:*",
+    "@uniclip/crypto": "workspace:*",
     "@uniclip/protocol": "workspace:*",
     "@uniclip/room-code": "workspace:*",
     "qrcode": "^1.5.4",
