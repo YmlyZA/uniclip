@@ -1,0 +1,63 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`uniclip` is an end-to-end-encrypted "universal clipboard": a web SPA syncs clipboard text between devices through a relay that **never sees plaintext or keys**. pnpm + Turborepo monorepo, TypeScript everywhere. v0.1 is text-only.
+
+## Commands
+
+```bash
+pnpm install                         # bootstrap the workspace
+pnpm typecheck                       # turbo: tsc --noEmit (svelte-check for web) across all packages
+pnpm test                            # turbo: unit tests for all packages EXCEPT e2e
+pnpm test:e2e                        # Playwright two-browser test (boots relay + web dev servers itself)
+pnpm lint                            # turbo: eslint
+
+# single package / single test file (vitest name pattern)
+pnpm --filter @uniclip/crypto test envelope
+pnpm --filter @uniclip/relay typecheck
+
+# local dev (split origin: web on :5173 talks to relay on :3000)
+PORT=3000 pnpm --filter @uniclip/relay dev          # bun run --hot
+VITE_RELAY_BASE=http://localhost:3000 pnpm --filter @uniclip/web dev
+
+# production image: one container serves API + SPA on :3000
+docker build -t uniclip:dev . && docker run --rm -p 3000:3000 uniclip:dev
+```
+
+**`pnpm test` deliberately excludes `@uniclip/e2e`** (`--filter=!@uniclip/e2e`): Playwright must run after `playwright install`, and booting its dev servers starves the unit suite's async-timing tests. Run e2e only via `pnpm test:e2e`.
+
+## Architecture
+
+Data flow: **web SPA ⇄ relay (WebSocket) ⇄ web SPA**. The relay is a pure in-memory fan-out — it validates frame *shape* and forwards opaque ciphertext; it holds no key and persists nothing.
+
+Packages (`packages/`) are consumed as **TypeScript source** (`main` → `src/index.ts`), not built artifacts — bundlers/vitest resolve `.ts` directly. The `build` task (`tsc -p`) emits in place and is essentially vestigial; those `.js`/`.d.ts` are gitignored under `packages/*/src`.
+
+- **`protocol`** — Zod wire schemas; the single source of truth for frame shapes. `ClipboardFrameSchema` (type/msgId/iv/ciphertext/ts), `ServerFrameSchema` (discriminated union incl. clip), `CLOSE_CODES` (4404/4429/4413), `MAX_FRAME_BYTES`. Client and relay both validate against these.
+- **`crypto`** — AES-256-GCM envelope over WebCrypto. `deriveKey` (PBKDF2-SHA256, 200k iters) is **non-extractable by default** (pass `extractable: true` only in tests). Encryption is bound by AAD; a bounded `ReplaySet` dedups by msgId.
+- **`room-code`** — pairing. `parseRoomUrl` is the shared URL contract: `/r/<routingId>#<secret>` → Mode A, `/r/<routingId>` (no fragment) → Mode B.
+- **`client-core`** — `UniclipClient`: derives the key, connects (`/ws/<routingId>` — **only the routingId is ever sent**), encrypts on send, and on receive runs shape→replay→decrypt before emitting. Exponential backoff reconnect.
+- **`apps/relay`** — Bun + Hono. `RoomStore` (GC: idle-timeout OR max-age), WS handlers (hello/peer-joined/peer-left/clip fan-out), per-socket + per-IP sliding-window rate limits, Prometheus `/api/metrics`, static SPA fallback (`STATIC_ROOT`), CORS on `/api/*`.
+- **`apps/web`** — Svelte 5 (runes) + Vite 6 + Tailwind 4. Path-based router (relies on the relay's SPA fallback for `/r/*`), `ClipboardWatcher` polling, encrypted-at-rest history in localStorage.
+
+### Security model (don't break these invariants)
+- **Mode A is zero-knowledge**: the secret lives only in the URL fragment, is generated client-side, and is never put in any request — only `routingId` reaches the relay. Mode B derives the key from the routingId (which the server sees) and is labelled "less secure" in the UI.
+- **AAD domain separation**: wire frames use `${routingId}:${msgId}`; at-rest persistence uses `persist:${roomId}`. Keep them disjoint so a stored blob can't be replayed as a live frame.
+- **Key derivation must stay identical** between `client-core` and `apps/web/src/routes/room.svelte` (and matches on both peers), or peers can't decrypt each other.
+
+## Toolchain gotchas (these will bite you)
+
+- **Relay tests run under Bun, not Node.** Its `test` script is `bun --bun vitest run`, and `apps/relay/vitest.config.ts` sets `server.deps.inline: [/zod/, /hono/, /ulid/]` — without that, Bun's loader + vitest's transform produce two module copies and `z.object` is undefined. The integration tests need real `Bun.serve`. If a new relay test imports another CJS/ESM dep that comes back with undefined exports, add it to `inline`.
+- **In `apps/relay/src/ws-handlers.ts`, mutate `raw.data.roomId` — never reassign `raw.data`.** Hono's bun adapter owns `ws.data` (`{events,url,protocol}`); reassigning it breaks `onClose`/`onMessage` dispatch.
+- **Relay tsconfig uses `"types": ["bun"]`** (the `@types/bun` reference name), not `"bun-types"`. Its `typecheck` includes `test/`, and `@types/bun` types `Response.json()` as `unknown`, so relay tests must cast: `(await res.json()) as {...}`.
+- **`apps/web` needs `@sveltejs/vite-plugin-svelte` v5** (for Vite 6). v4 makes the dev server resolve Svelte's *server* build → `mount()` throws → blank page. The `vite build` still succeeds, so only the dev server / E2E catches it.
+- **`apps/web` tests mock browser globals with `vi.stubGlobal`**, not `Object.assign(globalThis, …)` — `navigator` is a getter-only global in this Node and `Object.assign` throws.
+- Helpers feeding WebCrypto return `Uint8Array<ArrayBuffer>` (not bare `Uint8Array`) so they satisfy `BufferSource` under TS 5.7's generic `Uint8Array`.
+
+## Conventions
+
+- TDD: write the failing test, confirm it fails, implement, confirm green. Commits are small and scoped (`feat(pkg): …`, `fix(pkg): …`).
+- Trust `tsc --noEmit` / `svelte-check` / `vitest` exit codes over IDE diagnostics — stale "cannot find module" warnings are common right after creating a file; the file watcher lags writes.
+- Spec and plan live in `docs/superpowers/{specs,plans}/`.
