@@ -14,5 +14,11 @@ export default defineConfig({
         inline: [/zod/, /hono/, /ulid/],
       },
     },
+    // Run every file in a single long-lived worker. vitest's tinypool worker
+    // spawn/teardown is fragile under Bun (older versions crash with
+    // "Cannot access 'dispose' before initialization"); one worker minimises
+    // that surface. The suite is small and the Bun.serve tests are serial-safe.
+    pool: "forks",
+    poolOptions: { forks: { singleFork: true } },
   },
 });
