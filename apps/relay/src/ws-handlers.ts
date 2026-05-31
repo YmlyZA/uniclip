@@ -68,6 +68,11 @@ function broadcast(
   const payload = JSON.stringify(frame);
   for (const s of sockets) {
     if (s === exclude) continue;
-    (s as ServerWebSocket<unknown>).send(payload);
+    try {
+      (s as ServerWebSocket<unknown>).send(payload);
+    } catch {
+      // A failing socket must not block delivery to the rest of the room;
+      // its own onClose will reap it from the set.
+    }
   }
 }
