@@ -6,6 +6,13 @@ export interface DeriveKeyOptions {
   secret: string;
   /** Salt: routingId for Mode A, "uniclip-v1" for Mode B. */
   salt: string;
+  /**
+   * Whether the derived key is exportable. Defaults to false: a non-extractable
+   * key cannot be read out via exportKey even by same-origin script (XSS, a
+   * malicious extension), which is what we want for production. Tests that need
+   * to compare raw key bytes pass `true` explicitly.
+   */
+  extractable?: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -28,7 +35,7 @@ export async function deriveKey(opts: DeriveKeyOptions): Promise<CryptoKey> {
     },
     baseKey,
     { name: "AES-GCM", length: KEY_BITS },
-    true, // extractable so tests can compare raw bytes; production code never exports
+    opts.extractable ?? false,
     ["encrypt", "decrypt"],
   );
 }

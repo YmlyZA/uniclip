@@ -13,11 +13,13 @@ describe("deriveKey (PBKDF2)", () => {
     });
     expect(key.algorithm).toMatchObject({ name: "AES-GCM", length: 256 });
     expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+    // Secure default: the production key must not be exportable.
+    expect(key.extractable).toBe(false);
   });
 
   it("is deterministic for the same input", async () => {
-    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p" });
-    const k2 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p" });
+    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p", extractable: true });
+    const k2 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p", extractable: true });
     // Same input → same raw bytes
     const raw1 = await crypto.subtle.exportKey("raw", k1);
     const raw2 = await crypto.subtle.exportKey("raw", k2);
@@ -25,16 +27,16 @@ describe("deriveKey (PBKDF2)", () => {
   });
 
   it("differs for different secret", async () => {
-    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p" });
-    const k2 = await deriveKey({ secret: "xyz456xyz456xyz456", salt: "qx7k2p" });
+    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p", extractable: true });
+    const k2 = await deriveKey({ secret: "xyz456xyz456xyz456", salt: "qx7k2p", extractable: true });
     const r1 = new Uint8Array(await crypto.subtle.exportKey("raw", k1));
     const r2 = new Uint8Array(await crypto.subtle.exportKey("raw", k2));
     expect(r1).not.toEqual(r2);
   });
 
   it("differs for different salt", async () => {
-    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p" });
-    const k2 = await deriveKey({ secret: "abc123abc123abc123", salt: "ab9d3z" });
+    const k1 = await deriveKey({ secret: "abc123abc123abc123", salt: "qx7k2p", extractable: true });
+    const k2 = await deriveKey({ secret: "abc123abc123abc123", salt: "ab9d3z", extractable: true });
     const r1 = new Uint8Array(await crypto.subtle.exportKey("raw", k1));
     const r2 = new Uint8Array(await crypto.subtle.exportKey("raw", k2));
     expect(r1).not.toEqual(r2);
