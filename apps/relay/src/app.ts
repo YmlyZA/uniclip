@@ -13,7 +13,11 @@ export interface AppDeps {
   ipLimiter?: { allow: (ip: string) => boolean };
 }
 
-const CreateRoomBody = z.object({ mode: z.enum(["A", "B"]) });
+const CreateRoomBody = z.object({
+  mode: z.enum(["A", "B"]),
+  // Whether late joiners get recent clips. Defaults on; forced off for Mode B.
+  backfill: z.boolean().optional(),
+});
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -40,7 +44,7 @@ export function buildApp(deps: AppDeps): Hono {
     const json = await c.req.json().catch(() => null);
     const parsed = CreateRoomBody.safeParse(json);
     if (!parsed.success) return c.json({ error: "invalid body" }, 400);
-    const room = deps.store.create(parsed.data.mode);
+    const room = deps.store.create(parsed.data.mode, parsed.data.backfill ?? true);
     const expiresAt = new Date(room.createdAt + 24 * 3600_000).toISOString();
     return c.json({ roomId: room.id, expiresAt });
   });

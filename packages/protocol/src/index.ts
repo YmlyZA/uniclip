@@ -25,6 +25,9 @@ export const HelloFrameSchema = z
     roomId: z.string(),
     peerCount: z.number().int().nonnegative(),
     serverTime: z.number().int().nonnegative(),
+    // Whether this room backfills recent clips to late joiners. Always false
+    // for Mode B (the relay only buffers ciphertext it cannot decrypt).
+    backfill: z.boolean(),
   })
   .strict();
 

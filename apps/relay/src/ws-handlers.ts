@@ -38,7 +38,13 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             roomId,
             peerCount: room.sockets.size,
             serverTime: Date.now(),
+            backfill: room.backfillEnabled,
           });
+          // Backfill recent clips to this newcomer only — existing peers already
+          // have them, and the client's ReplaySet dedups by msgId.
+          if (room.backfillEnabled) {
+            for (const frame of room.recent) send(raw, frame);
+          }
           broadcast(room.sockets, raw, {
             type: "peer-joined",
             peerCount: room.sockets.size,
@@ -51,6 +57,9 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           if (!room) return;
           room.sockets.delete(raw);
           store.touch(room.id);
+          // History lives only while the room is occupied: drop the buffer once
+          // the last device leaves.
+          if (room.sockets.size === 0) room.recent.length = 0;
           broadcast(room.sockets, raw, {
             type: "peer-left",
             peerCount: room.sockets.size,
@@ -101,6 +110,8 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           broadcast(room.sockets, raw, result.data, () =>
             metrics?.inc("uniclip_frames_out_total"),
           );
+          // Buffer for late joiners (no-op unless Mode A + backfill enabled).
+          store.pushRecent(room.id, result.data);
         },
       };
     }),

@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RoomStore } from "./rooms";
+import { RoomStore, RECENT_CAP } from "./rooms";
+import { ulid } from "ulid";
+
+const frame = () => ({
+  type: "clip" as const,
+  msgId: ulid(),
+  iv: "AAAAAAAAAAAAAAAA",
+  ciphertext: "QUFBQQ==",
+  ts: 0,
+});
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -61,5 +70,27 @@ describe("RoomStore", () => {
     vi.advanceTimersByTime(2_000);
     s.gc();
     expect(s.get(r.id)).toBeUndefined();
+  });
+
+  it("Mode A defaults to backfill enabled; explicit false disables it", () => {
+    const s = new RoomStore();
+    expect(s.create("A").backfillEnabled).toBe(true);
+    expect(s.create("A", false).backfillEnabled).toBe(false);
+  });
+
+  it("Mode B never buffers even if backfill is requested", () => {
+    const s = new RoomStore();
+    const r = s.create("B", true);
+    expect(r.backfillEnabled).toBe(false);
+    s.pushRecent(r.id, frame());
+    expect(s.get(r.id)!.recent).toHaveLength(0);
+  });
+
+  it("pushRecent buffers in order and caps at RECENT_CAP (oldest evicted)", () => {
+    const s = new RoomStore();
+    const r = s.create("A");
+    for (let i = 0; i < RECENT_CAP + 5; i++) s.pushRecent(r.id, frame());
+    const buf = s.get(r.id)!.recent;
+    expect(buf).toHaveLength(RECENT_CAP);
   });
 });
