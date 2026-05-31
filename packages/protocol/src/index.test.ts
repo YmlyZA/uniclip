@@ -49,6 +49,7 @@ describe("ServerFrameSchema", () => {
         roomId: "qx7k2p",
         peerCount: 1,
         serverTime: 1717000000000,
+        backfill: true,
       }),
     ).toBeDefined();
   });
