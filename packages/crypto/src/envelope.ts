@@ -57,7 +57,7 @@ export function toBase64(bytes: ArrayBuffer | Uint8Array): string {
   return btoa(s);
 }
 
-export function fromBase64(s: string): Uint8Array {
+export function fromBase64(s: string): Uint8Array<ArrayBuffer> {
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

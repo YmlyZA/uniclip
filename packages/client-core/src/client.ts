@@ -120,8 +120,8 @@ export class UniclipClient {
         try {
           const text = await decrypt({
             key: this.key,
-            iv: fromBase64(frame.iv) as BufferSource,
-            ciphertext: fromBase64(frame.ciphertext) as BufferSource,
+            iv: fromBase64(frame.iv),
+            ciphertext: fromBase64(frame.ciphertext),
             aad: `${this.room.routingId}:${frame.msgId}`,
           });
           this.emit({ kind: "clip", text, ts: frame.ts });
