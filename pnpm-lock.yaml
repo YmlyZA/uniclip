@@ -52,6 +52,18 @@ importers:
         specifier: ^2.1.4
         version: 2.1.9
 
+  packages/room-code:
+    devDependencies:
+      '@uniclip/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9
+
   packages/tsconfig: {}
 
 packages:
