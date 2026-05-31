@@ -21,7 +21,10 @@ export class Metrics {
     const lines: string[] = [];
     for (const [name, value] of this.gauges) lines.push(`${name} ${value}`);
     for (const [key, value] of this.counters) {
-      const [name, labelStr] = key.split("|");
+      // Split on the FIRST "|" only — label values may themselves contain "|".
+      const pipe = key.indexOf("|");
+      const name = key.slice(0, pipe);
+      const labelStr = key.slice(pipe + 1);
       lines.push(labelStr ? `${name}{${labelStr}} ${value}` : `${name} ${value}`);
     }
     return lines.join("\n") + "\n";
