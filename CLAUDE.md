@@ -35,7 +35,7 @@ tailscale serve --bg 3000      # or --https=8443 3000 if :443 is taken on the ho
 
 ## Architecture
 
-Data flow: **web SPA ⇄ relay (WebSocket) ⇄ web SPA**. The relay is a pure in-memory fan-out — it validates frame *shape* and forwards opaque ciphertext; it holds no key and persists nothing.
+Data flow: **web SPA ⇄ relay (WebSocket) ⇄ web SPA**. The relay is a pure in-memory fan-out — it validates frame *shape* and forwards opaque ciphertext; it holds no key and writes nothing to disk. The one piece of retained state is the **Mode-A backfill buffer**: a bounded (`RECENT_CAP`) in-memory ring of recent ciphertext frames per room, replayed to late joiners and cleared the instant the room empties. It exists only for Mode A (where the relay provably can't decrypt) and is opt-out per room at creation.
 
 Packages (`packages/`) are consumed as **TypeScript source** (`main` → `src/index.ts`), not built artifacts — bundlers/vitest resolve `.ts` directly. The `build` task (`tsc -p`) emits in place and is essentially vestigial; those `.js`/`.d.ts` are gitignored under `packages/*/src`.
 
@@ -43,12 +43,13 @@ Packages (`packages/`) are consumed as **TypeScript source** (`main` → `src/in
 - **`crypto`** — AES-256-GCM envelope over WebCrypto. `deriveKey` (PBKDF2-SHA256, 200k iters) is **non-extractable by default** (pass `extractable: true` only in tests). Encryption is bound by AAD; a bounded `ReplaySet` dedups by msgId.
 - **`room-code`** — pairing. `parseRoomUrl` is the shared URL contract: `/r/<routingId>#<secret>` → Mode A, `/r/<routingId>` (no fragment) → Mode B.
 - **`client-core`** — `UniclipClient`: derives the key, connects (`/ws/<routingId>` — **only the routingId is ever sent**), encrypts on send, and on receive runs shape→replay→decrypt before emitting. Exponential backoff reconnect.
-- **`apps/relay`** — Bun + Hono. `RoomStore` (GC: idle-timeout OR max-age), WS handlers (hello/peer-joined/peer-left/clip fan-out), per-socket + per-IP sliding-window rate limits, Prometheus `/api/metrics`, static SPA fallback (`STATIC_ROOT`), CORS on `/api/*`.
+- **`apps/relay`** — Bun + Hono. `RoomStore` (GC: idle-timeout OR max-age; per-room `recent`/`backfillEnabled` for Mode-A backfill via `pushRecent`), WS handlers (hello/peer-joined/peer-left/clip fan-out; on join replays `recent` to the newcomer only, clears it when sockets hit 0), per-socket + per-IP sliding-window rate limits, Prometheus `/api/metrics`, static SPA fallback (`STATIC_ROOT`), CORS on `/api/*`.
 - **`apps/web`** — Svelte 5 (runes) + Vite 6 + Tailwind 4. Path-based router (relies on the relay's SPA fallback for `/r/*`), `ClipboardWatcher` polling, encrypted-at-rest history in localStorage.
 
 ### Security model (don't break these invariants)
 - **Mode A is zero-knowledge**: the secret lives only in the URL fragment, is generated client-side, and is never put in any request — only `routingId` reaches the relay. Mode B derives the key from the routingId (which the server sees) and is labelled "less secure" in the UI.
 - **AAD domain separation**: wire frames use `${routingId}:${msgId}`; at-rest persistence uses `persist:${roomId}`. Keep them disjoint so a stored blob can't be replayed as a live frame.
+- **Backfill is Mode-A-only by construction**: `RoomStore.create` forces `backfillEnabled = mode === "A" && backfill`. Never buffer Mode-B clips — the relay can derive that key, so retaining Mode-B ciphertext would mean retaining readable history. The buffer must stay memory-only and clear on empty (history lives only while a device is connected).
 - **Key derivation must stay identical** between `client-core` and `apps/web/src/routes/room.svelte` (and matches on both peers), or peers can't decrypt each other.
 
 ## Toolchain gotchas (these will bite you)
