@@ -1,0 +1,27 @@
+{
+  "name": "@uniclip/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/server.ts",
+    "build": "bun build src/server.ts --target=bun --outfile=dist/server.js",
+    "start": "bun run dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@uniclip/protocol": "workspace:*",
+    "@uniclip/room-code": "workspace:*",
+    "hono": "^4.6.9",
+    "pino": "^9.5.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.13",
+    "@uniclip/tsconfig": "workspace:*",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

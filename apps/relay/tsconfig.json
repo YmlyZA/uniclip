@@ -1,0 +1,8 @@
+{
+  "extends": "@uniclip/tsconfig/node.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
