@@ -10,3 +10,11 @@ coverage/
 .svelte-kit/
 playwright-report/
 test-results/
+
+# tsc build artifacts emitted in-place: the library preset has no outDir, and
+# packages are consumed as TS source (main → src/index.ts), so `tsc -p` (run by
+# turbo's ^build) emits .js/.d.ts next to the .ts source. Never commit these.
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
