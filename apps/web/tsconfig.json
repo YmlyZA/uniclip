@@ -1,0 +1,8 @@
+{
+  "extends": "@uniclip/tsconfig/svelte.json",
+  "compilerOptions": {
+    "types": ["svelte", "vite/client"],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
+}

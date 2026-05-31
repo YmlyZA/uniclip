@@ -1,0 +1,31 @@
+{
+  "name": "@uniclip/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "svelte-check --tsconfig tsconfig.json"
+  },
+  "dependencies": {
+    "@uniclip/client-core": "workspace:*",
+    "@uniclip/protocol": "workspace:*",
+    "@uniclip/room-code": "workspace:*",
+    "qrcode": "^1.5.4",
+    "svelte": "^5.1.16"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0-beta.3",
+    "@types/qrcode": "^1.5.5",
+    "@uniclip/tsconfig": "workspace:*",
+    "svelte-check": "^4.0.5",
+    "tailwindcss": "^4.0.0-beta.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.1",
+    "vitest": "^2.1.4"
+  }
+}
