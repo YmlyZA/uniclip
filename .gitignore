@@ -18,3 +18,9 @@ packages/*/src/**/*.js
 packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 packages/*/src/**/*.d.ts.map
+
+# TLS material — never commit private keys. `tailscale cert` drops <name>.crt/.key
+# into the cwd; serve uses the daemon's own store, so these copies aren't needed.
+*.key
+*.crt
+*.pem

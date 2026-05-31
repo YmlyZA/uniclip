@@ -39,6 +39,25 @@ VITE_RELAY_BASE=http://localhost:3000 pnpm --filter @uniclip/web dev
 
 Open <http://localhost:5173> in two browser windows: click **Start** in the first, copy the room link into the second, then **Send clipboard** in one and watch it appear in the other.
 
+### Testing across devices
+
+`localhost` is a secure context, so the clipboard works on the machine running the dev server. **Other devices need HTTPS** — `navigator.clipboard` is unavailable over plain `http://<lan-ip>`, so clips silently won't sync there. The simplest way to get a trusted cert without configuring each device is [Tailscale](https://tailscale.com) `serve`:
+
+```bash
+# build + run the production container (SPA + relay on one port)
+docker build -t uniclip:dev .
+docker run -d --rm -p 3000:3000 --name uniclip uniclip:dev
+
+# expose it over your tailnet with automatic HTTPS (tailnet-only, not public)
+tailscale serve --bg 3000
+# → open https://<machine>.<tailnet>.ts.net on any device signed into the tailnet
+```
+
+- **If another service already holds `:443`** on the host, pick a free port: `tailscale serve --bg --https=8443 3000` → `https://<machine>.<tailnet>.ts.net:8443`. A custom HTTPS port is still a secure context.
+- **`tailscale serve` needs a cert** from Let's Encrypt; on a network that can't reach it, provision once through a tailnet exit node with clean egress (`tailscale set --exit-node=<node>`, then `tailscale cert <machine>.<tailnet>.ts.net`, then clear it) — the cert is cached afterward.
+- The SPA is origin-relative, so **no `VITE_RELAY_BASE` is needed** — it connects back to whatever host served it (`http→ws`, `https→wss`).
+- Stop with `tailscale serve --https=<port> off`.
+
 ## Production (single container)
 
 The multi-stage `Dockerfile` builds the SPA and the relay, then serves both from one Bun process:

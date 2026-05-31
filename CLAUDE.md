@@ -25,6 +25,10 @@ VITE_RELAY_BASE=http://localhost:3000 pnpm --filter @uniclip/web dev
 
 # production image: one container serves API + SPA on :3000
 docker build -t uniclip:dev . && docker run --rm -p 3000:3000 uniclip:dev
+
+# test across real devices: clipboard needs a secure context (HTTPS or localhost),
+# so http://<lan-ip> won't sync. Expose the container over HTTPS with Tailscale:
+tailscale serve --bg 3000      # or --https=8443 3000 if :443 is taken on the host
 ```
 
 **`pnpm test` deliberately excludes `@uniclip/e2e`** (`--filter=!@uniclip/e2e`): Playwright must run after `playwright install`, and booting its dev servers starves the unit suite's async-timing tests. Run e2e only via `pnpm test:e2e`.
