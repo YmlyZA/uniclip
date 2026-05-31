@@ -25,7 +25,11 @@ export function staticHandler(root: string) {
       resolve(rootResolved, "index.html"),
     ];
     for (const candidate of candidates) {
-      if (!candidate.startsWith(rootResolved)) continue; // path traversal guard
+      // Path-traversal guard: require the candidate to be the root itself or
+      // strictly within it. The trailing separator prevents a sibling-dir
+      // prefix escape (e.g. root "/srv/web" must not match "/srv/web-secret").
+      if (candidate !== rootResolved && !candidate.startsWith(rootResolved + "/"))
+        continue;
       const file = Bun.file(candidate);
       if (await file.exists()) {
         const ext = candidate.slice(candidate.lastIndexOf("."));
