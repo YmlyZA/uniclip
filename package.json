@@ -5,7 +5,8 @@
   "packageManager": "pnpm@9.12.0",
   "scripts": {
     "build": "turbo run build",
-    "test": "turbo run test",
+    "test": "turbo run test --filter=!@uniclip/e2e",
+    "test:e2e": "pnpm --filter @uniclip/e2e test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "dev": "turbo run dev --parallel"
