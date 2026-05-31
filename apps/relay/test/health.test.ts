@@ -3,7 +3,7 @@ import { buildApp } from "../src/app";
 
 describe("GET /api/health", () => {
   it("returns ok with counts", async () => {
-    const app = buildApp();
+    const app = buildApp({ roomCount: () => 0 });
     const res = await app.request("/api/health");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
