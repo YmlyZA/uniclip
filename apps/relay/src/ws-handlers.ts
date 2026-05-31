@@ -9,8 +9,9 @@ import {
 } from "@uniclip/protocol";
 import type { RoomStore } from "./rooms";
 import { SlidingWindowLimiter } from "./rate-limit";
+import type { Metrics } from "./metrics";
 
-export function attachWebSocket(app: Hono, store: RoomStore) {
+export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) {
   const { upgradeWebSocket, websocket } = createBunWebSocket<{ roomId: string }>();
   const frameLimiter = new SlidingWindowLimiter(20, 10_000);
   const socketKeys = new WeakMap<ServerWebSocket<{ roomId: string }>, string>();
@@ -31,6 +32,7 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
           raw.data.roomId = roomId;
           room.sockets.add(raw);
           store.touch(roomId);
+          metrics?.inc("uniclip_sockets_open_total");
           send(raw, {
             type: "hello",
             roomId,
@@ -62,6 +64,7 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
 
           const data = typeof ev.data === "string" ? ev.data : "";
           if (Buffer.byteLength(data, "utf8") > MAX_FRAME_BYTES) {
+            metrics?.inc("uniclip_errors_total", 1, { code: "TOO_LARGE" });
             raw.close(CLOSE_CODES.TOO_LARGE, "TOO_LARGE");
             return;
           }
@@ -81,6 +84,7 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
             socketKeys.set(raw, key);
           }
           if (!frameLimiter.allow(key)) {
+            metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
             raw.send(
               JSON.stringify({
                 type: "error",
@@ -92,14 +96,17 @@ export function attachWebSocket(app: Hono, store: RoomStore) {
             return;
           }
 
+          metrics?.inc("uniclip_frames_in_total");
           store.touch(room.id);
-          broadcast(room.sockets, raw, result.data);
+          broadcast(room.sockets, raw, result.data, () =>
+            metrics?.inc("uniclip_frames_out_total"),
+          );
         },
       };
     }),
   );
 
-  return { websocket, fetch: app.fetch };
+  return { websocket, fetch: app.fetch, frameLimiter };
 }
 
 function send(ws: ServerWebSocket<unknown>, frame: ServerFrame): void {
@@ -110,12 +117,14 @@ function broadcast(
   sockets: Set<unknown>,
   exclude: ServerWebSocket<unknown>,
   frame: ServerFrame,
+  onSent?: () => void,
 ): void {
   const payload = JSON.stringify(frame);
   for (const s of sockets) {
     if (s === exclude) continue;
     try {
       (s as ServerWebSocket<unknown>).send(payload);
+      onSent?.();
     } catch {
       // A failing socket must not block delivery to the rest of the room;
       // its own onClose will reap it from the set.
