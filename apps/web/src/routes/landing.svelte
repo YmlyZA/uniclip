@@ -16,6 +16,9 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ mode }),
       });
+      // Bail on a server error (e.g. 429) so we don't navigate to /r/undefined.
+      // User-facing feedback (toasts) arrives with the room-view UI task.
+      if (!res.ok) return;
       const { roomId } = await res.json();
       const secret = mode === "A" ? generateModeARoom().secret : undefined;
       navigateToRoom(roomId, secret);
