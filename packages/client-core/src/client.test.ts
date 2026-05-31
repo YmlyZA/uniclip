@@ -38,6 +38,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// The receive path awaits an async WebCrypto decrypt, so a fixed setTimeout is
+// racy under load (decrypt may not have resolved yet). Poll for the condition.
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 100 && !predicate(); i++) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 describe("UniclipClient", () => {
   it("derives key + connects + emits status:connected on hello", async () => {
     const client = new UniclipClient({
@@ -93,8 +101,7 @@ describe("UniclipClient", () => {
     await sender.send("ping from A");
     const wireFrame = JSON.parse(senderWs.sent[0]!);
     receiverWs.emit(wireFrame);
-    // give the async decrypt a tick
-    await new Promise((r) => setTimeout(r, 0));
+    await waitFor(() => received.length > 0);
     expect(received).toEqual(["ping from A"]);
   });
 
@@ -120,8 +127,8 @@ describe("UniclipClient", () => {
     await sender.send("once");
     const wire = JSON.parse(senderWs.sent[0]!);
     receiverWs.emit(wire);
-    receiverWs.emit(wire); // duplicate
-    await new Promise((r) => setTimeout(r, 10));
+    receiverWs.emit(wire); // duplicate (rejected synchronously by replay.admit)
+    await waitFor(() => received.length > 0);
     expect(received).toEqual(["once"]);
   });
 });
