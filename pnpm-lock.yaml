@@ -69,6 +69,9 @@ importers:
       svelte:
         specifier: ^5.1.16
         version: 5.56.0(@typescript-eslint/types@8.60.0)
+      ulid:
+        specifier: ^2.3.0
+        version: 2.4.0
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^4.0.0

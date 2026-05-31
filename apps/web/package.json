@@ -16,7 +16,8 @@
     "@uniclip/protocol": "workspace:*",
     "@uniclip/room-code": "workspace:*",
     "qrcode": "^1.5.4",
-    "svelte": "^5.1.16"
+    "svelte": "^5.1.16",
+    "ulid": "^2.3.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
