@@ -28,6 +28,7 @@
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
   let watching = $state(false);
   let showShare = $state(false);
+  let backfillOn = $state(false);
   let persist: PersistedItems | null = null;
   const watcher = new ClipboardWatcher({ intervalMs: 1000 });
 
@@ -43,8 +44,9 @@
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
-    c.on("clip", async (text) => {
-      const item: Item = { id: ulid(), text, ts: Date.now() };
+    c.on("room", (b) => (backfillOn = b));
+    c.on("clip", async (text, ts) => {
+      const item: Item = { id: ulid(), text, ts };
       items = [...items, item].slice(-50);
       await persist!.add(item);
     });
@@ -109,8 +111,13 @@
   <button class="rounded border px-3 py-1 text-sm" onclick={toggleWatch}>
     Watch: {watching ? "ON" : "OFF"}
   </button>
+  {#if backfillOn}
+    <span class="ml-auto text-xs text-gray-500" title="New devices receive recent items while a device stays connected">
+      Sharing recent items
+    </span>
+  {/if}
   {#if room.mode === "B"}
-    <span class="ml-auto rounded bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
+    <span class="{backfillOn ? '' : 'ml-auto'} rounded bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
       Less secure: server can decrypt
     </span>
   {/if}

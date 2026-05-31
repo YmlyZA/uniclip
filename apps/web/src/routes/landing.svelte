@@ -5,6 +5,7 @@
   const relayBase = import.meta.env.VITE_RELAY_BASE ?? window.location.origin;
 
   let mode: "A" | "B" = $state("A");
+  let backfill = $state(true);
   let joinCode = $state("");
   let creating = $state(false);
 
@@ -14,7 +15,8 @@
       const res = await fetch(`${relayBase}/api/room`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode }),
+        // backfill only applies to Mode A; the relay ignores it for Mode B.
+        body: JSON.stringify({ mode, backfill: mode === "A" ? backfill : false }),
       });
       // Bail on a server error (e.g. 429) so we don't navigate to /r/undefined.
       // User-facing feedback (toasts) arrives with the room-view UI task.
@@ -49,6 +51,12 @@
       <input type="radio" bind:group={mode} value="B" />
       Typed code (server can decrypt — less secure)
     </label>
+    {#if mode === "A"}
+      <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+        <input type="checkbox" bind:checked={backfill} />
+        Share recent items with devices that join later
+      </label>
+    {/if}
     <button
       class="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
       disabled={creating}
