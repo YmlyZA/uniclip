@@ -41,4 +41,13 @@ describe("PersistedItems", () => {
     p.clear();
     expect(await p.load()).toEqual([]);
   });
+
+  it("dedups by id (duplicate frame is a no-op)", async () => {
+    const key = await deriveKey({ secret: "abcdefghijklmnopqr", salt: "qx7k2p" });
+    const p = new PersistedItems({ roomId: "qx7k2p", key, cap: 50 });
+    await p.add({ id: "m1", text: "hello", ts: 1 });
+    await p.add({ id: "m1", text: "hello", ts: 1 }); // replayed on reconnect
+    const loaded = await p.load();
+    expect(loaded).toHaveLength(1);
+  });
 });

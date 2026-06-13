@@ -9,7 +9,6 @@
   import { readClipboardText, ClipboardWatcher } from "../lib/clipboard";
   import { PersistedItems, type Item } from "../lib/persist";
   import { toast } from "../lib/toast";
-  import { ulid } from "ulid";
 
   let { room }: { room: ParsedRoom } = $props();
 
@@ -40,20 +39,16 @@
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
     c.on("room", (b) => (backfillOn = b));
-    c.on("clip", async (text, ts) => {
-      const item: Item = { id: ulid(), text, ts };
-      items = [...items, item].slice(-50);
-      await persist!.add(item);
+    c.on("clip", async (text, ts, msgId) => {
+      await addItem(text, ts, msgId);
     });
     c.on("error", (e) => toast(`${e.code}: ${e.message}`, "warn"));
     await c.connect();
 
     watcher.on(async (text) => {
       try {
-        await c.send(text);
-        const item: Item = { id: ulid(), text, ts: Date.now() };
-        items = [...items, item].slice(-50);
-        await persist!.add(item);
+        const { msgId, ts } = await c.send(text);
+        await addItem(text, ts, msgId);
       } catch {}
     });
   });
@@ -66,13 +61,19 @@
   async function sendNow() {
     try {
       const text = await readClipboardText();
-      await client?.send(text);
-      const item: Item = { id: ulid(), text, ts: Date.now() };
-      items = [...items, item].slice(-50);
-      await persist!.add(item);
+      if (!client) return;
+      const { msgId, ts } = await client.send(text);
+      await addItem(text, ts, msgId);
     } catch {
       toast("Clipboard read failed — permission?", "warn");
     }
+  }
+
+  async function addItem(text: string, ts: number, msgId: string) {
+    if (items.some((i) => i.id === msgId)) return; // mirror persist's dedup for the live list
+    const item: Item = { id: msgId, text, ts };
+    items = [...items, item].slice(-50);
+    await persist!.add(item);
   }
 
   async function toggleWatch() {

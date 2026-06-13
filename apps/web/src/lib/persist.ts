@@ -25,6 +25,7 @@ export class PersistedItems {
 
   async add(item: Item): Promise<void> {
     if (!this.loaded) await this.load();
+    if (this.items.some((i) => i.id === item.id)) return; // dedup by frame identity
     this.items.push(item);
     if (this.items.length > this.opts.cap) {
       this.items.splice(0, this.items.length - this.opts.cap);
