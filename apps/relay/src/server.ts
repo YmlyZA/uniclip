@@ -33,9 +33,19 @@ const serveStatic = process.env.STATIC_ROOT
   ? staticHandler(process.env.STATIC_ROOT)
   : null;
 
+// Optional native TLS: set TLS_CERT and TLS_KEY (PEM file paths) to serve HTTPS
+// directly — used for LAN cross-device testing where clipboard APIs require a
+// secure context. Unset (the default, and production behind a TLS proxy) keeps
+// plain HTTP unchanged.
+const tlsCert = process.env.TLS_CERT;
+const tlsKey = process.env.TLS_KEY;
+const tls =
+  tlsCert && tlsKey ? { cert: Bun.file(tlsCert), key: Bun.file(tlsKey) } : undefined;
+
 const port = Number(process.env.PORT ?? 3000);
 Bun.serve({
   port,
+  ...(tls ? { tls } : {}),
   fetch: async (req, srv) => {
     const honoRes = await fetch(req, srv);
     if (honoRes.status !== 404 || !serveStatic) return honoRes;
@@ -47,4 +57,4 @@ Bun.serve({
     idleTimeout: 60,
   },
 });
-log.info({ port }, "relay listening");
+log.info({ port, tls: Boolean(tls) }, "relay listening");
