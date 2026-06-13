@@ -39,6 +39,18 @@ Use `Caddyfile.host-snippet`: run the relay bound to loopback and add one
 `reverse_proxy` block to your existing host Caddy. See that file for the exact
 `docker run` line and config block.
 
+## Room persistence (surviving restarts)
+
+By default the relay holds everything in memory, so a restart invalidates active
+room URLs (clients reconnect, get `4404`, and must mint a new room). The compose
+stack opts into durability by setting `ROOM_DB_PATH=/data/rooms.db` on a mounted
+`room_data` volume. Only room **metadata** (`id`, `mode`, `expiresAt`,
+`backfillEnabled`, `createdAt`) is stored — never clipboard frames, keys,
+sockets, or the backfill buffer. After a redeploy, existing URLs stay valid and devices
+reconnect automatically; history still exists only while a device is connected.
+
+A bare `docker run` without `ROOM_DB_PATH` keeps the original in-memory behavior.
+
 ## Notes
 
 - `reverse_proxy` forwards the `/ws/*` WebSocket upgrade automatically — no

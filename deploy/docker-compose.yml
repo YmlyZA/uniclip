@@ -5,8 +5,10 @@
 #
 # Point clip.example.com's A/AAAA record at this host first. Caddy then obtains
 # and renews a Let's Encrypt certificate for $DOMAIN with no further config.
-# The relay is in-memory and stateless (rooms GC by idle/age, nothing is
-# persisted), so this two-service stack is the entire deployment.
+# The relay keeps clipboard frames/keys/history only in memory; it persists just
+# room *metadata* (id, mode, expiresAt, backfillEnabled, createdAt) to a small
+# SQLite file on the room_data volume so room URLs survive a redeploy. GC by
+# idle/age still applies.
 services:
   relay:
     build:
@@ -17,6 +19,9 @@ services:
     environment:
       PORT: "3000"
       LOG_LEVEL: info
+      ROOM_DB_PATH: /data/rooms.db # persists room URLs across restarts (metadata only)
+    volumes:
+      - room_data:/data # room metadata DB — never holds frames, keys, or history
     expose:
       - "3000" # internal to the compose network only; never published to the host
 
@@ -38,3 +43,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  room_data:
