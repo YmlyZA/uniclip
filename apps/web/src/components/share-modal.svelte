@@ -11,17 +11,31 @@
   async function copy() {
     await navigator.clipboard.writeText(url);
   }
+
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key === "Escape") onClose();
+  }
 </script>
 
+<svelte:window onkeydown={onWindowKey} />
+
+<!-- Backdrop click-to-close is a convenience; keyboard users close via Escape
+     (window handler above) or the Done button. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-  onclick={onClose}
-  role="dialog"
+  role="presentation"
+  onclick={(e) => {
+    if (e.target === e.currentTarget) onClose();
+  }}
 >
   <div
     class="w-full max-w-sm rounded bg-white p-6 dark:bg-gray-900"
-    onclick={(e) => e.stopPropagation()}
-    role="document"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Share this room"
+    tabindex="-1"
   >
     <h2 class="mb-4 text-lg font-semibold">Share this room</h2>
     <div class="mb-3 grid place-items-center">{@html svg}</div>
