@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { createBunWebSocket } from "hono/bun";
+import { upgradeWebSocket, websocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
 import {
   CLOSE_CODES,
@@ -12,7 +12,6 @@ import { SlidingWindowLimiter } from "./rate-limit";
 import type { Metrics } from "./metrics";
 
 export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) {
-  const { upgradeWebSocket, websocket } = createBunWebSocket<{ roomId: string }>();
   const frameLimiter = new SlidingWindowLimiter(20, 10_000);
   const socketKeys = new WeakMap<ServerWebSocket<{ roomId: string }>, string>();
 
