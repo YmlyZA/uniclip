@@ -1,9 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { UniclipClient } from "@uniclip/client-core";
+  import { UniclipClient, deriveRoomKey } from "@uniclip/client-core";
   import type { ParsedRoom } from "@uniclip/room-code";
-  import { deriveKey } from "@uniclip/crypto";
-  import { MODE_B_SALT } from "@uniclip/room-code";
   import Header from "../components/header.svelte";
   import ItemsList from "../components/items-list.svelte";
   import ShareModal from "../components/share-modal.svelte";
@@ -33,10 +31,7 @@
   const watcher = new ClipboardWatcher({ intervalMs: 1000 });
 
   onMount(async () => {
-    const key =
-      room.mode === "A"
-        ? await deriveKey({ secret: room.secret, salt: room.routingId })
-        : await deriveKey({ secret: room.routingId, salt: MODE_B_SALT });
+    const key = await deriveRoomKey(room);
     persist = new PersistedItems({ roomId: room.routingId, key, cap: 50 });
     items = await persist.load();
 

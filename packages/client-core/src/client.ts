@@ -1,8 +1,9 @@
 import { ulid } from "ulid";
 import { ServerFrameSchema, type ClientFrame } from "@uniclip/protocol";
-import { deriveKey, encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/crypto";
-import { parseRoomUrl, MODE_B_SALT, type ParsedRoom } from "@uniclip/room-code";
+import { encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/crypto";
+import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
+import { deriveRoomKey } from "./room-key";
 
 export type Status = "connecting" | "connected" | "disconnected" | "reconnecting";
 
@@ -71,11 +72,7 @@ export class UniclipClient {
   async connect(): Promise<void> {
     if (this.disposed) throw new Error("client disposed");
     if (!this.key) {
-      if (this.room.mode === "A") {
-        this.key = await deriveKey({ secret: this.room.secret, salt: this.room.routingId });
-      } else {
-        this.key = await deriveKey({ secret: this.room.routingId, salt: MODE_B_SALT });
-      }
+      this.key = await deriveRoomKey(this.room);
     }
     this.openSocket();
   }
