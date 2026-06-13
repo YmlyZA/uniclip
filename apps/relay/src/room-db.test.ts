@@ -41,4 +41,11 @@ describe("RoomDb", () => {
     d.insert({ id: "strpth", mode: "A", expiresAt: 100, backfillEnabled: true, createdAt: 1_000_000 });
     expect(d.get("strpth")?.createdAt).toBe(1_000_000);
   });
+
+  it("count() counts only unexpired rooms", () => {
+    const d = new RoomDb(new Database(":memory:"));
+    d.insert({ id: "live", mode: "A", expiresAt: 200, backfillEnabled: true, createdAt: 0 });
+    d.insert({ id: "dead", mode: "A", expiresAt: 50, backfillEnabled: true, createdAt: 0 });
+    expect(d.count(100)).toBe(1);
+  });
 });

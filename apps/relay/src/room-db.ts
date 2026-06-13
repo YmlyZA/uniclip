@@ -65,6 +65,14 @@ export class RoomDb {
     this.db.query(`DELETE FROM rooms WHERE id = ?`).run(id);
   }
 
+  /** Number of rooms that still exist (not yet past their expiry). */
+  count(now: number): number {
+    const row = this.db
+      .query(`SELECT COUNT(*) AS n FROM rooms WHERE expires_at > ?`)
+      .get(now) as { n: number } | null;
+    return row?.n ?? 0;
+  }
+
   deleteExpired(now: number): void {
     this.db.query(`DELETE FROM rooms WHERE expires_at <= ?`).run(now);
   }

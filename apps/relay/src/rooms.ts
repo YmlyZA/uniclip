@@ -3,6 +3,8 @@ import {
   generateModeBCode,
 } from "@uniclip/room-code";
 import type { ClipboardFrame } from "@uniclip/protocol";
+import type { Database } from "bun:sqlite";
+import { RoomDb } from "./room-db";
 
 export type RoomMode = "A" | "B";
 
@@ -25,20 +27,30 @@ export interface Room {
 export interface RoomStoreOptions {
   idleTimeoutMs?: number;
   maxAgeMs?: number;
+  db?: Database | string;
 }
 
 export class RoomStore {
   private readonly rooms = new Map<string, Room>();
   private readonly idleTimeoutMs: number;
   private readonly maxAgeMs: number;
+  private readonly roomDb: RoomDb;
 
   constructor(opts: RoomStoreOptions = {}) {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? 5 * 60_000;
     this.maxAgeMs = opts.maxAgeMs ?? 24 * 3600_000;
+    this.roomDb = new RoomDb(opts.db ?? ":memory:");
   }
 
   get count(): number {
     return this.rooms.size;
+  }
+
+  // Total rooms that still exist (live in memory OR persisted and not expired).
+  // External callers (health, metrics) want this, not `count`, so a metric does
+  // not read 0 while idle-evicted rooms still serve valid URLs from the DB.
+  get totalCount(): number {
+    return this.roomDb.count(Date.now());
   }
 
   create(mode: RoomMode, backfill = true): Room {
@@ -57,6 +69,13 @@ export class RoomStore {
       backfillEnabled: mode === "A" && backfill,
     };
     this.rooms.set(id, room);
+    this.roomDb.insert({
+      id,
+      mode,
+      expiresAt: now + this.maxAgeMs,
+      backfillEnabled: room.backfillEnabled,
+      createdAt: now,
+    });
     return room;
   }
 
@@ -72,7 +91,28 @@ export class RoomStore {
   }
 
   get(id: string): Room | undefined {
-    return this.rooms.get(id);
+    const live = this.rooms.get(id);
+    if (live) return live;
+    // Map miss: the room may still exist in the DB (survived a restart, or was
+    // evicted from memory while idle). Rehydrate it — empty sockets/recent;
+    // history only ever lives in memory while a device is connected.
+    const rec = this.roomDb.get(id);
+    if (!rec) return undefined;
+    if (rec.expiresAt <= Date.now()) {
+      this.roomDb.delete(id);
+      return undefined;
+    }
+    const room: Room = {
+      id: rec.id,
+      mode: rec.mode,
+      sockets: new Set(),
+      createdAt: rec.createdAt,
+      lastActivityAt: Date.now(), // idle clock restarts on rehydrate; aged GC (createdAt-based) is the hard 24h ceiling
+      recent: [],
+      backfillEnabled: rec.backfillEnabled,
+    };
+    this.rooms.set(id, room);
+    return room;
   }
 
   touch(id: string): void {
@@ -84,8 +124,16 @@ export class RoomStore {
     const now = Date.now();
     for (const [id, room] of this.rooms) {
       const aged = now - room.createdAt > this.maxAgeMs;
-      const idle = room.sockets.size === 0 && now - room.lastActivityAt > this.idleTimeoutMs;
-      if (aged || idle) this.rooms.delete(id);
+      const idle =
+        room.sockets.size === 0 && now - room.lastActivityAt > this.idleTimeoutMs;
+      if (aged) {
+        this.rooms.delete(id);
+        this.roomDb.delete(id); // gone for good
+      } else if (idle) {
+        this.rooms.delete(id); // reclaim memory; DB row survives to max-age
+      }
     }
+    // Sweep DB rows whose rooms expired while evicted from the Map.
+    this.roomDb.deleteExpired(now);
   }
 }

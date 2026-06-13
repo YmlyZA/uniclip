@@ -6,7 +6,7 @@ import { Metrics } from "./metrics";
 import { staticHandler } from "./static";
 import { log } from "./log";
 
-const store = new RoomStore();
+const store = new RoomStore({ db: process.env.ROOM_DB_PATH ?? ":memory:" });
 const metrics = new Metrics();
 const ipLimiter = {
   inner: new SlidingWindowLimiter(10, 3600_000),
@@ -16,7 +16,7 @@ const ipLimiter = {
 };
 
 const app = buildApp({
-  roomCount: () => store.count,
+  roomCount: () => store.totalCount,
   store,
   metrics,
   ipLimiter,
