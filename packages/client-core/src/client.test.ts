@@ -169,4 +169,43 @@ describe("UniclipClient", () => {
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: true });
     expect(backfill).toBe(true);
   });
+
+  it("send() returns the minted msgId and ts matching the wire frame", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    const res = await client.send("x");
+    const wire = JSON.parse(ws.sent[0]!);
+    expect(res.msgId).toBe(wire.msgId);
+    expect(res.ts).toBe(wire.ts);
+  });
+
+  it("emits the frame's msgId with 'clip' (for persist dedup)", async () => {
+    const sender = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const receiver = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await sender.connect();
+    await receiver.connect();
+    const senderWs = MockWebSocket.instances[0]!;
+    const receiverWs = MockWebSocket.instances[1]!;
+    senderWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    receiverWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+
+    let gotMsgId = "";
+    receiver.on("clip", (_text: string, _ts: number, msgId: string) => (gotMsgId = msgId));
+    await sender.send("hi");
+    const wire = JSON.parse(senderWs.sent[0]!);
+    receiverWs.emit(wire);
+    await waitFor(() => gotMsgId !== "");
+    expect(gotMsgId).toBe(wire.msgId);
+  });
 });

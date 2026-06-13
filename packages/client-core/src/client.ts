@@ -9,7 +9,7 @@ export type Status = "connecting" | "connected" | "disconnected" | "reconnecting
 
 export type ClientEvent =
   | { kind: "status"; value: Status }
-  | { kind: "clip"; text: string; ts: number }
+  | { kind: "clip"; text: string; ts: number; msgId: string }
   | { kind: "peer"; count: number }
   | { kind: "room"; backfill: boolean }
   | { kind: "error"; code: string; message: string };
@@ -18,7 +18,7 @@ export type ClientEvent =
 // backfilled clips sort by when they were sent, not when they were received.
 export interface EventHandlers {
   status: (value: Status) => void;
-  clip: (text: string, ts: number) => void;
+  clip: (text: string, ts: number, msgId: string) => void;
   peer: (count: number) => void;
   room: (backfill: boolean) => void;
   error: (err: { code: string; message: string }) => void;
@@ -61,7 +61,7 @@ export class UniclipClient {
     for (const cb of set) {
       switch (evt.kind) {
         case "status": (cb as EventHandlers["status"])(evt.value); break;
-        case "clip": (cb as EventHandlers["clip"])(evt.text, evt.ts); break;
+        case "clip": (cb as EventHandlers["clip"])(evt.text, evt.ts, evt.msgId); break;
         case "peer": (cb as EventHandlers["peer"])(evt.count); break;
         case "room": (cb as EventHandlers["room"])(evt.backfill); break;
         case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
@@ -130,7 +130,7 @@ export class UniclipClient {
             ciphertext: fromBase64(frame.ciphertext),
             aad: `${this.room.routingId}:${frame.msgId}`,
           });
-          this.emit({ kind: "clip", text, ts: frame.ts });
+          this.emit({ kind: "clip", text, ts: frame.ts, msgId: frame.msgId });
         } catch {
           // bad key / tampered / wrong room — drop silently
         }
@@ -142,12 +142,13 @@ export class UniclipClient {
     }
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string): Promise<{ msgId: string; ts: number }> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error("not connected");
     }
     if (!this.key) throw new Error("no key");
     const msgId = ulid();
+    const ts = Date.now();
     const env = await encrypt({
       key: this.key,
       plaintext: text,
@@ -158,9 +159,10 @@ export class UniclipClient {
       msgId,
       iv: toBase64(env.iv),
       ciphertext: toBase64(env.ciphertext),
-      ts: Date.now(),
+      ts,
     };
     this.ws.send(JSON.stringify(frame));
+    return { msgId, ts };
   }
 
   disconnect(): void {
