@@ -4,6 +4,8 @@ export interface Item {
   id: string;
   text: string;
   ts: number;
+  /** True when this device sent the item; false/undefined when received. */
+  mine?: boolean;
 }
 
 export interface PersistOptions {
@@ -51,6 +53,13 @@ export class PersistedItems {
       this.items = [];
     }
     return this.items;
+  }
+
+  async remove(id: string): Promise<void> {
+    if (!this.loaded) await this.load();
+    const before = this.items.length;
+    this.items = this.items.filter((i) => i.id !== id);
+    if (this.items.length !== before) await this.save();
   }
 
   clear(): void {

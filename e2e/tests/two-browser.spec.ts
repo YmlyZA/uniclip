@@ -8,17 +8,17 @@ test("two browsers sync clipboard text in Mode A", async () => {
   const pageB = await ctxB.newPage();
 
   await pageA.goto("/");
-  await pageA.getByRole("radio", { name: /Zero-knowledge/i }).check();
-  await pageA.getByRole("button", { name: /Start/i }).click();
+  await pageA.getByRole("button", { name: /Zero-knowledge/i }).click();
+  await pageA.getByRole("button", { name: /Create encrypted room/i }).click();
   await expect(pageA).toHaveURL(/\/r\/[a-z2-9]{6}#/);
 
   const roomUrl = pageA.url();
   await pageB.goto(roomUrl);
-  // wait for connection on both
-  await expect(pageA.getByText(/connected/)).toBeVisible({ timeout: 5_000 });
-  await expect(pageB.getByText(/connected/)).toBeVisible({ timeout: 5_000 });
+  // wait for connection on both (the status pill reads "Secure channel")
+  await expect(pageA.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
+  await expect(pageB.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
 
-  // write into A's clipboard, click "Send clipboard"
+  // write into A's clipboard, click "Send clipboard now"
   await pageA.evaluate(() => navigator.clipboard.writeText("hello from A"));
   await pageA.getByRole("button", { name: /Send clipboard/i }).click();
 

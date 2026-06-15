@@ -5,8 +5,9 @@
   import Header from "../components/header.svelte";
   import ItemsList from "../components/items-list.svelte";
   import ShareModal from "../components/share-modal.svelte";
+  import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
-  import { readClipboardText, ClipboardWatcher } from "../lib/clipboard";
+  import { readClipboardText, writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
   import { PersistedItems, type Item } from "../lib/persist";
   import { toast } from "../lib/toast";
 
@@ -18,6 +19,9 @@
   );
   const httpBase = import.meta.env.VITE_RELAY_BASE ?? window.location.origin;
   const roomUrl = window.location.href;
+  const secretFrag = $derived(room.mode === "A" ? `#${room.secret}` : "");
+  const shareUrl = $derived(`${httpBase}/r/${room.routingId}${secretFrag}`);
+  const syncHint = "On phones, keep this tab in front — background copies can't be read.";
 
   let client = $state<UniclipClient | null>(null);
   let items = $state<Item[]>([]);
@@ -40,7 +44,7 @@
     c.on("peer", (n) => (peerCount = n));
     c.on("room", (b) => (backfillOn = b));
     c.on("clip", async (text, ts, msgId) => {
-      await addItem(text, ts, msgId);
+      await addItem(text, ts, msgId, false);
     });
     c.on("error", (e) => toast(`${e.code}: ${e.message}`, "warn"));
     await c.connect();
@@ -48,7 +52,7 @@
     watcher.on(async (text) => {
       try {
         const { msgId, ts } = await c.send(text);
-        await addItem(text, ts, msgId);
+        await addItem(text, ts, msgId, true);
       } catch {}
     });
   });
@@ -58,22 +62,42 @@
     client?.disconnect();
   });
 
+  async function addItem(text: string, ts: number, msgId: string, mine: boolean) {
+    if (items.some((i) => i.id === msgId)) return;
+    const item: Item = { id: msgId, text, ts, mine };
+    items = [...items, item].slice(-50);
+    await persist!.add(item);
+  }
+
   async function sendNow() {
     try {
       const text = await readClipboardText();
       if (!client) return;
       const { msgId, ts } = await client.send(text);
-      await addItem(text, ts, msgId);
+      await addItem(text, ts, msgId, true);
+      toast("Sent to room", "info", 1200);
     } catch {
       toast("Clipboard read failed — permission?", "warn");
     }
   }
 
-  async function addItem(text: string, ts: number, msgId: string) {
-    if (items.some((i) => i.id === msgId)) return; // mirror persist's dedup for the live list
-    const item: Item = { id: msgId, text, ts };
-    items = [...items, item].slice(-50);
-    await persist!.add(item);
+  async function copy(text: string) {
+    try {
+      await writeClipboardText(text);
+    } catch {
+      toast("Copy failed — clipboard permission?", "warn");
+    }
+  }
+
+  async function onDelete(id: string) {
+    items = items.filter((i) => i.id !== id);
+    await persist?.remove(id);
+  }
+
+  function clearHistory() {
+    items = [];
+    persist?.clear();
+    toast("History cleared", "info", 1200);
   }
 
   async function toggleWatch() {
@@ -81,8 +105,12 @@
       watcher.stop();
       watching = false;
     } else {
-      await watcher.start();
-      watching = true;
+      try {
+        await watcher.start();
+        watching = true;
+      } catch {
+        toast("Couldn't start sync — clipboard permission?", "warn");
+      }
     }
   }
 
@@ -92,38 +120,87 @@
   }
 </script>
 
-<Header
-  roomId={room.routingId}
-  peerCount={peerCount}
-  status={status}
-  onShare={() => (showShare = true)}
-  onEnd={endRoom}
-/>
+<div class="flex min-h-[100dvh] flex-col">
+  <Header
+    roomId={room.routingId}
+    mode={room.mode}
+    {peerCount}
+    {status}
+    onShare={() => (showShare = true)}
+    onClear={clearHistory}
+    onEnd={endRoom}
+  />
 
-<section class="flex items-center gap-2 border-b px-4 py-2">
-  <button class="rounded bg-black px-3 py-1 text-sm text-white" onclick={sendNow}>
-    Send clipboard
-  </button>
-  <button class="rounded border px-3 py-1 text-sm" onclick={toggleWatch}>
-    Watch: {watching ? "ON" : "OFF"}
-  </button>
-  {#if backfillOn}
-    <span class="ml-auto text-xs text-gray-500" title="New devices receive recent items while a device stays connected">
-      Sharing recent items
-    </span>
+  <main
+    class="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:py-6"
+  >
+    <!-- Desktop control rail -->
+    <aside class="hidden w-72 shrink-0 lg:block">
+      <div class="sticky top-24 space-y-3">
+        <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
+        <button
+          type="button"
+          onclick={sendNow}
+          class="flex w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 py-2.5 text-sm font-medium text-text transition hover:border-border-strong"
+        >
+          <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4 text-muted" aria-hidden="true">
+            <path d="M12 19V6M6 11l6-6 6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Send clipboard now
+        </button>
+
+        {#if backfillOn}
+          <div class="flex items-start gap-2 rounded-field border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+            <svg viewBox="0 0 24 24" fill="none" class="mt-px h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true">
+              <path d="M4 12a8 8 0 0 1 13.7-5.6L20 9M20 12a8 8 0 0 1-13.7 5.6L4 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M20 5v4h-4M4 19v-4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            Recent items are shared with devices that join later.
+          </div>
+        {/if}
+
+        <div class="rounded-card border border-border bg-surface p-3.5 text-xs leading-relaxed text-muted">
+          {#if room.mode === "A"}
+            <span class="font-medium text-text">Zero-knowledge.</span> The secret lives only in your link
+            and never reaches the server — it can't read your clipboard.
+          {:else}
+            <span class="font-medium text-warn">Less secure.</span> The key derives from the room code the
+            server sees, so the server could decrypt. Share over a trusted channel.
+          {/if}
+        </div>
+      </div>
+    </aside>
+
+    <!-- List -->
+    <section class="min-w-0 flex-1 pb-32 lg:pb-0">
+      <ItemsList {items} syncing={watching} onCopy={copy} {onDelete} />
+    </section>
+  </main>
+
+  <!-- Mobile bottom action bar (thumb zone) -->
+  <div
+    class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-bg/90 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md lg:hidden"
+  >
+    <div class="mx-auto flex max-w-5xl items-stretch gap-2">
+      <div class="min-w-0 flex-1">
+        <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
+      </div>
+      <button
+        type="button"
+        onclick={sendNow}
+        aria-label="Send clipboard now"
+        class="grid shrink-0 place-items-center rounded-card border border-border bg-surface px-4 text-text transition hover:border-border-strong active:scale-95"
+      >
+        <svg viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
+          <path d="M12 19V6M6 11l6-6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  {#if showShare}
+    <ShareModal url={shareUrl} mode={room.mode} onClose={() => (showShare = false)} />
   {/if}
-  {#if room.mode === "B"}
-    <span class="{backfillOn ? '' : 'ml-auto'} rounded bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
-      Less secure: server can decrypt
-    </span>
-  {/if}
-</section>
 
-<ItemsList items={items} />
-
-{#if showShare}
-  <ShareModal url={`${httpBase}/r/${room.routingId}${room.mode === "A" ? "#" + (room as any).secret : ""}`}
-    onClose={() => (showShare = false)} />
-{/if}
-
-<Toaster />
+  <Toaster />
+</div>
