@@ -186,7 +186,7 @@
     </aside>
 
     <!-- List -->
-    <section class="min-w-0 flex-1 pb-32 lg:pb-0">
+    <section class="min-w-0 flex-1 pb-44 lg:pb-0">
       <ItemsList {items} syncing={watching} onCopy={copy} {onDelete} />
     </section>
   </main>
@@ -195,13 +195,9 @@
   <div
     class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-bg/90 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md lg:hidden"
   >
-    <div class="mx-auto flex max-w-5xl items-stretch gap-2">
-      <div class="min-w-0 flex-1">
-        <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-      </div>
-      <div class="min-w-0 flex-1">
-        <Composer onSend={sendText} />
-      </div>
+    <div class="mx-auto flex max-w-5xl flex-col gap-2">
+      <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
+      <Composer onSend={sendText} />
     </div>
   </div>
 

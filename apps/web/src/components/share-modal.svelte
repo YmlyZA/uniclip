@@ -87,7 +87,7 @@
 
     <div class="p-5">
       {#if tab === "qr"}
-        <div class="mx-auto grid w-fit place-items-center rounded-card border border-border bg-white p-3">
+        <div class="mx-auto grid w-fit place-items-center rounded-card border border-border bg-white p-3 [&>svg]:h-52 [&>svg]:w-52">
           {@html svg}
         </div>
         <p class="mt-3 text-center text-xs text-muted">Scan with another device's camera.</p>
