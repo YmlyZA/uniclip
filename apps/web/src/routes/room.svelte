@@ -47,6 +47,10 @@
     c.on("clip", async (text, ts, msgId) => {
       await addItem(text, ts, msgId, false);
     });
+    c.on("delete", async (msgId) => {
+      items = items.filter((i) => i.id !== msgId);
+      await persist?.remove(msgId);
+    });
     c.on("error", (e) => {
       if (e.code === "DECRYPT_FAILED") keyError = true;
       else toast(`${e.code}: ${e.message}`, "warn");
@@ -96,6 +100,7 @@
   async function onDelete(id: string) {
     items = items.filter((i) => i.id !== id);
     await persist?.remove(id);
+    client?.delete(id);
   }
 
   function clearHistory() {
