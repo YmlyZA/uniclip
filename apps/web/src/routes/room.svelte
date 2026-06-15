@@ -5,9 +5,10 @@
   import Header from "../components/header.svelte";
   import ItemsList from "../components/items-list.svelte";
   import ShareModal from "../components/share-modal.svelte";
+  import Composer from "../components/composer.svelte";
   import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
-  import { readClipboardText, writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
+  import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
   import { PersistedItems, type Item } from "../lib/persist";
   import { toast } from "../lib/toast";
 
@@ -77,15 +78,13 @@
     await persist!.add(item);
   }
 
-  async function sendNow() {
+  async function sendText(text: string) {
     try {
-      const text = await readClipboardText();
       if (!client) return;
       const { msgId, ts } = await client.send(text);
       await addItem(text, ts, msgId, true);
-      toast("Sent to room", "info", 1200);
     } catch {
-      toast("Clipboard read failed — permission?", "warn");
+      toast("Send failed", "warn");
     }
   }
 
@@ -162,16 +161,7 @@
     <aside class="hidden w-72 shrink-0 lg:block">
       <div class="sticky top-24 space-y-3">
         <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-        <button
-          type="button"
-          onclick={sendNow}
-          class="flex w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 py-2.5 text-sm font-medium text-text transition hover:border-border-strong"
-        >
-          <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4 text-muted" aria-hidden="true">
-            <path d="M12 19V6M6 11l6-6 6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Send clipboard now
-        </button>
+        <Composer onSend={sendText} />
 
         {#if backfillOn}
           <div class="flex items-start gap-2 rounded-field border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
@@ -209,16 +199,9 @@
       <div class="min-w-0 flex-1">
         <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
       </div>
-      <button
-        type="button"
-        onclick={sendNow}
-        aria-label="Send clipboard now"
-        class="grid shrink-0 place-items-center rounded-card border border-border bg-surface px-4 text-text transition hover:border-border-strong active:scale-95"
-      >
-        <svg viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
-          <path d="M12 19V6M6 11l6-6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
+      <div class="min-w-0 flex-1">
+        <Composer onSend={sendText} />
+      </div>
     </div>
   </div>
 
