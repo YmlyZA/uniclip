@@ -90,6 +90,15 @@ export class RoomStore {
     }
   }
 
+  // Drop a clip from the backfill ring (e.g. when it's deleted) so late joiners
+  // don't receive an item that no longer exists.
+  removeRecent(id: string, msgId: string): void {
+    const r = this.rooms.get(id);
+    if (!r) return;
+    const i = r.recent.findIndex((f) => f.msgId === msgId);
+    if (i >= 0) r.recent.splice(i, 1);
+  }
+
   get(id: string): Room | undefined {
     const live = this.rooms.get(id);
     if (live) return live;

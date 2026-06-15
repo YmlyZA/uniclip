@@ -128,6 +128,18 @@ describe("RoomStore", () => {
     expect(b.get(r.id)).toBeUndefined();
   });
 
+  it("removeRecent drops a clip from the backfill ring by msgId", () => {
+    const s = new RoomStore();
+    const r = s.create("A");
+    const f1 = frame();
+    const f2 = frame();
+    s.pushRecent(r.id, f1);
+    s.pushRecent(r.id, f2);
+    s.removeRecent(r.id, f1.msgId);
+    const buf = s.get(r.id)!.recent;
+    expect(buf.map((f) => f.msgId)).toEqual([f2.msgId]);
+  });
+
   it("gc() sweeps an expired DB row that was evicted from the Map while idle", () => {
     const db = new Database(":memory:");
     const s = new RoomStore({ db, idleTimeoutMs: 5 * 60_000, maxAgeMs: 10 * 60_000 });
