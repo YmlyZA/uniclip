@@ -209,6 +209,34 @@ describe("UniclipClient", () => {
     expect(gotMsgId).toBe(wire.msgId);
   });
 
+  it("delete(msgId) writes a delete frame", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    client.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+  });
+
+  it("emits 'delete' with the msgId when a delete frame arrives", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    let got = "";
+    client.on("delete", (msgId: string) => (got = msgId));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.emit({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    await waitFor(() => got !== "");
+    expect(got).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+  });
+
   it("emits DECRYPT_FAILED when frames can't be decrypted (wrong/missing key)", async () => {
     // Sender is Mode A (has the #secret). Receiver opens the SAME routingId WITHOUT
     // the secret → Mode B → derives a different key → every frame fails to decrypt.

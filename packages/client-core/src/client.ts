@@ -10,6 +10,7 @@ export type Status = "connecting" | "connected" | "disconnected" | "reconnecting
 export type ClientEvent =
   | { kind: "status"; value: Status }
   | { kind: "clip"; text: string; ts: number; msgId: string }
+  | { kind: "delete"; msgId: string }
   | { kind: "peer"; count: number }
   | { kind: "room"; backfill: boolean }
   | { kind: "error"; code: string; message: string };
@@ -19,6 +20,7 @@ export type ClientEvent =
 export interface EventHandlers {
   status: (value: Status) => void;
   clip: (text: string, ts: number, msgId: string) => void;
+  delete: (msgId: string) => void;
   peer: (count: number) => void;
   room: (backfill: boolean) => void;
   error: (err: { code: string; message: string }) => void;
@@ -64,6 +66,7 @@ export class UniclipClient {
       switch (evt.kind) {
         case "status": (cb as EventHandlers["status"])(evt.value); break;
         case "clip": (cb as EventHandlers["clip"])(evt.text, evt.ts, evt.msgId); break;
+        case "delete": (cb as EventHandlers["delete"])(evt.msgId); break;
         case "peer": (cb as EventHandlers["peer"])(evt.count); break;
         case "room": (cb as EventHandlers["room"])(evt.backfill); break;
         case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
@@ -151,6 +154,9 @@ export class UniclipClient {
         }
         return;
       }
+      case "delete":
+        this.emit({ kind: "delete", msgId: frame.msgId });
+        return;
       case "error":
         this.emit({ kind: "error", code: frame.code, message: frame.message });
         return;
@@ -178,6 +184,12 @@ export class UniclipClient {
     };
     this.ws.send(JSON.stringify(frame));
     return { msgId, ts };
+  }
+
+  delete(msgId: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const frame: ClientFrame = { type: "delete", msgId };
+    this.ws.send(JSON.stringify(frame));
   }
 
   disconnect(): void {
