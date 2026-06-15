@@ -3,7 +3,7 @@ import { upgradeWebSocket, websocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
 import {
   CLOSE_CODES,
-  ClipboardFrameSchema,
+  ClientFrameSchema,
   MAX_FRAME_BYTES,
   type ServerFrame,
 } from "@uniclip/protocol";
@@ -83,7 +83,7 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           } catch {
             return;
           }
-          const result = ClipboardFrameSchema.safeParse(parsed);
+          const result = ClientFrameSchema.safeParse(parsed);
           if (!result.success) return;
 
           let key = socketKeys.get(raw);
@@ -109,8 +109,13 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           broadcast(room.sockets, raw, result.data, () =>
             metrics?.inc("uniclip_frames_out_total"),
           );
-          // Buffer for late joiners (no-op unless Mode A + backfill enabled).
-          store.pushRecent(room.id, result.data);
+          if (result.data.type === "clip") {
+            // Buffer for late joiners (no-op unless Mode A + backfill enabled).
+            store.pushRecent(room.id, result.data);
+          } else {
+            // delete: drop it from the ring so a late joiner won't get it back.
+            store.removeRecent(room.id, result.data.msgId);
+          }
         },
       };
     }),
