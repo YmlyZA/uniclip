@@ -16,8 +16,8 @@ test("joining a Mode-A room without the secret shows a decrypt warning", async (
 
   // A sends a clip so the relay's backfill ring has something to replay.
   await expect(pageA.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
-  await pageA.evaluate(() => navigator.clipboard.writeText("locked content"));
-  await pageA.getByRole("button", { name: /Send clipboard/i }).click();
+  await pageA.getByRole("textbox").fill("locked content");
+  await pageA.getByRole("button", { name: /^Send$/i }).click();
   await expect(pageA.getByText("locked content")).toBeVisible({ timeout: 5_000 });
 
   // B opens the SAME room without the #secret → Mode B → wrong key.

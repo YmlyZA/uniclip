@@ -19,12 +19,12 @@ test("late joiner receives prior clips via Mode-A backfill", async () => {
 
   // A sends two clips BEFORE any second device joins. These land only in the
   // relay's Mode-A backfill ring — there is no peer to fan them out to yet.
-  await pageA.evaluate(() => navigator.clipboard.writeText("first clip"));
-  await pageA.getByRole("button", { name: /Send clipboard/i }).click();
+  await pageA.getByRole("textbox").fill("first clip");
+  await pageA.getByRole("button", { name: /^Send$/i }).click();
   await expect(pageA.getByText("first clip")).toBeVisible({ timeout: 5_000 });
 
-  await pageA.evaluate(() => navigator.clipboard.writeText("second clip"));
-  await pageA.getByRole("button", { name: /Send clipboard/i }).click();
+  await pageA.getByRole("textbox").fill("second clip");
+  await pageA.getByRole("button", { name: /^Send$/i }).click();
   await expect(pageA.getByText("second clip")).toBeVisible({ timeout: 5_000 });
 
   // B joins the same room URL (with the #secret fragment) as a LATE joiner.
