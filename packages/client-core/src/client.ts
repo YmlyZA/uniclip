@@ -38,6 +38,8 @@ export class UniclipClient {
   private replay = new ReplaySet();
   private backoff = new Backoff({ baseMs: 1000, maxMs: 30_000, jitter: 0.2 });
   private disposed = false;
+  private decryptedOk = false;
+  private decryptWarned = false;
 
   constructor(opts: UniclipClientOptions) {
     const parsed = parseRoomUrl(opts.roomUrl);
@@ -130,9 +132,22 @@ export class UniclipClient {
             ciphertext: fromBase64(frame.ciphertext),
             aad: `${this.room.routingId}:${frame.msgId}`,
           });
+          this.decryptedOk = true;
           this.emit({ kind: "clip", text, ts: frame.ts, msgId: frame.msgId });
         } catch {
-          // bad key / tampered / wrong room — drop silently
+          // Frames arrive but never decrypt: almost always a wrong/missing key —
+          // e.g. a Mode-A room opened without its #secret (some apps strip the
+          // fragment from shared links), so the client derived a Mode-B key.
+          // Surface it once instead of silently dropping every clip.
+          if (!this.decryptedOk && !this.decryptWarned) {
+            this.decryptWarned = true;
+            this.emit({
+              kind: "error",
+              code: "DECRYPT_FAILED",
+              message:
+                "Connected, but can't decrypt this room. Open the full share link — it carries the secret key.",
+            });
+          }
         }
         return;
       }

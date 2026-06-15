@@ -30,6 +30,7 @@
   let watching = $state(false);
   let showShare = $state(false);
   let backfillOn = $state(false);
+  let keyError = $state(false);
   let persist: PersistedItems | null = null;
   const watcher = new ClipboardWatcher({ intervalMs: 1000 });
 
@@ -46,7 +47,10 @@
     c.on("clip", async (text, ts, msgId) => {
       await addItem(text, ts, msgId, false);
     });
-    c.on("error", (e) => toast(`${e.code}: ${e.message}`, "warn"));
+    c.on("error", (e) => {
+      if (e.code === "DECRYPT_FAILED") keyError = true;
+      else toast(`${e.code}: ${e.message}`, "warn");
+    });
     await c.connect();
 
     watcher.on(async (text) => {
@@ -130,6 +134,21 @@
     onClear={clearHistory}
     onEnd={endRoom}
   />
+
+  {#if keyError}
+    <div class="border-b border-danger/40 bg-danger-soft px-4 py-2.5 text-sm text-danger sm:px-6">
+      <div class="mx-auto flex max-w-5xl items-start gap-2.5">
+        <svg viewBox="0 0 24 24" fill="none" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true">
+          <path d="M12 8v5M12 16.5h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span>
+          <span class="font-semibold">Connected, but can't decrypt this room.</span>
+          You likely opened it without the secret (the part after <span class="font-mono">#</span> in the share link). Open the
+          <span class="font-semibold">full share link</span> to read and sync.
+        </span>
+      </div>
+    </div>
+  {/if}
 
   <main
     class="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:gap-6 lg:py-6"

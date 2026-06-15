@@ -48,7 +48,7 @@
 
     <div class="ml-auto flex items-center gap-2">
       <StatusPill {status} />
-      <span class="hidden items-center gap-1 text-xs text-muted sm:inline-flex">
+      <span class="inline-flex items-center gap-1 text-xs text-muted" title="Devices online">
         <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
           <circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.7" />
           <path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />

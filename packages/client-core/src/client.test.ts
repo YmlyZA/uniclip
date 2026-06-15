@@ -208,4 +208,36 @@ describe("UniclipClient", () => {
     await waitFor(() => gotMsgId !== "");
     expect(gotMsgId).toBe(wire.msgId);
   });
+
+  it("emits DECRYPT_FAILED when frames can't be decrypted (wrong/missing key)", async () => {
+    // Sender is Mode A (has the #secret). Receiver opens the SAME routingId WITHOUT
+    // the secret → Mode B → derives a different key → every frame fails to decrypt.
+    const sender = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const receiver = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p",
+      relayBase: "wss://uniclip.app",
+    });
+    await sender.connect();
+    await receiver.connect();
+    const senderWs = MockWebSocket.instances[0]!;
+    const receiverWs = MockWebSocket.instances[1]!;
+    senderWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    receiverWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+
+    let errCode = "";
+    const clips: string[] = [];
+    receiver.on("error", (e: { code: string }) => (errCode = e.code));
+    receiver.on("clip", (t: string) => clips.push(t));
+
+    await sender.send("secret text");
+    const wire = JSON.parse(senderWs.sent[0]!);
+    receiverWs.emit(wire);
+
+    await waitFor(() => errCode !== "");
+    expect(errCode).toBe("DECRYPT_FAILED");
+    expect(clips).toEqual([]);
+  });
 });
