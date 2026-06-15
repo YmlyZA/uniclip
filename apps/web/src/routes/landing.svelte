@@ -35,8 +35,19 @@
   }
 
   function join() {
-    if (!joinCode.trim()) return;
-    navigateToRoom(joinCode.trim().toUpperCase());
+    const raw = joinCode.trim();
+    if (!raw) return;
+    if (raw.includes("/r/") || raw.includes("#")) {
+      // A pasted Mode-A link or path — preserve case, pull out routingId + #secret.
+      const tail = raw.replace(/^.*\/r\//, "").replace(/^\/+/, "");
+      const hash = tail.indexOf("#");
+      const routingId = (hash >= 0 ? tail.slice(0, hash) : tail).trim();
+      const secret = hash >= 0 ? tail.slice(hash + 1).trim() : "";
+      if (routingId) navigateToRoom(routingId, secret || undefined);
+    } else {
+      // A bare typed code is a Mode-B room code (uppercase alphabet).
+      navigateToRoom(raw.toUpperCase());
+    }
   }
 </script>
 
@@ -153,21 +164,26 @@
     </div>
 
     <!-- Join -->
-    <div class="mt-4 flex items-center gap-2.5 rounded-card border border-border bg-surface p-3 sm:p-3.5">
-      <input
-        class="min-w-0 flex-1 rounded-field border border-border bg-surface-2 px-3 py-2.5 text-center font-mono text-base uppercase tracking-[0.3em] text-text placeholder:tracking-normal placeholder:text-faint focus:border-accent focus:outline-none"
-        maxlength="6"
-        placeholder="join code"
-        bind:value={joinCode}
-        onkeydown={(e) => e.key === "Enter" && join()}
-      />
-      <button
-        type="button"
-        onclick={join}
-        class="shrink-0 rounded-field border border-border-strong bg-surface-2 px-4 py-2.5 text-sm font-semibold text-text transition hover:border-accent hover:text-accent"
-      >
-        Join
-      </button>
+    <div class="mt-4 rounded-card border border-border bg-surface p-3 sm:p-3.5">
+      <div class="flex items-center gap-2.5">
+        <input
+          class="min-w-0 flex-1 rounded-field border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-text placeholder:text-faint focus:border-accent focus:outline-none"
+          placeholder="Paste link or enter code"
+          bind:value={joinCode}
+          onkeydown={(e) => e.key === "Enter" && join()}
+        />
+        <button
+          type="button"
+          onclick={join}
+          class="shrink-0 rounded-field border border-border-strong bg-surface-2 px-4 py-2.5 text-sm font-semibold text-text transition hover:border-accent hover:text-accent"
+        >
+          Join
+        </button>
+      </div>
+      <p class="mt-2 px-0.5 text-xs text-faint">
+        Zero-knowledge rooms: open or paste the full share link (it carries the secret).
+        Typed codes are for less-secure rooms.
+      </p>
     </div>
   </div>
 
