@@ -17,21 +17,32 @@ gated on `TLS_CERT`/`TLS_KEY`) — no extra proxy container.
 
 ```bash
 brew install mkcert nss   # nss = Firefox trust; omit if you don't use Firefox
-docker build -t uniclip:dev /Volumes/T9/Projects/uniclip   # image must exist
+# Docker with Compose v2 (`docker compose`). The image is built by compose — no
+# manual `docker build` needed.
 ```
 
-## 1. Generate the cert + run the relay
+## 1. Generate the cert, then bring it up with Compose
 
 ```bash
 cd deploy/lan-https
-./setup.sh                 # auto-detects the Mac's LAN IP (or pass it: ./setup.sh 192.168.1.50)
+./setup.sh                       # once: mkcert CA + a cert for your LAN IP -> ./certs
+docker compose up --build -d     # rebuild image + run over HTTPS on :3443
 ```
 
-The script runs `mkcert -install`, writes `certs/relay.{crt,key}` (with the LAN
-IP in the SAN), and prints the exact `docker run` command plus the URL. Run that
-command. The container serves HTTPS on the LAN IP at port `3443` (override with
-`LAN_HTTPS_PORT`).
+`setup.sh` runs `mkcert -install`, writes `certs/relay.{crt,key}` (with the LAN
+IP in the SAN), and prints the root-CA path plus your URL. Then Compose builds
+the image and runs it with native TLS + a persistent room-metadata volume.
 
+Day-to-day:
+
+```bash
+docker compose up --build -d     # after code changes — rebuilds and restarts
+docker compose logs -f           # tail logs
+docker compose restart           # e.g. after re-running setup.sh on an IP change
+docker compose down              # stop (the room_data volume persists)
+```
+
+Port is `3443` (override: `HTTPS_PORT=8443 docker compose up --build -d`).
 `certs/` is gitignored (`*.crt`/`*.key`) — the private key never leaves your Mac.
 
 ## 2. Trust the root CA on each test device (once per device)

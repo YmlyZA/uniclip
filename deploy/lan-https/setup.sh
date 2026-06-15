@@ -47,19 +47,17 @@ LAN HTTPS ready.
   Cert:     $CERT_DIR/relay.crt   (SAN: $LAN_IP, localhost, 127.0.0.1)
   Root CA:  $CAROOT/rootCA.pem    <- install this on every test device
 
-Run the relay container with native TLS + room persistence:
+Start it (also rebuilds the image) from this deploy/lan-https/ directory:
 
-  docker rm -f uniclip 2>/dev/null
-  docker run -d --rm -p $PORT:3000 \\
-    -e TLS_CERT=/certs/relay.crt -e TLS_KEY=/certs/relay.key \\
-    -e ROOM_DB_PATH=/data/rooms.db -v uniclip_rooms:/data \\
-    -v "$CERT_DIR":/certs:ro \\
-    --name uniclip uniclip:dev
+  docker compose up --build -d     # rebuild + run; re-run after code changes
+  docker compose logs -f           # tail logs
+  docker compose down              # stop
 
 Then open on EVERY device (after installing the root CA — see README.md):
 
   https://$LAN_IP:$PORT
 
-If the Mac's LAN IP changes (DHCP), re-run this script and restart the container.
+The compose port defaults to 3443 (override with HTTPS_PORT). If the Mac's LAN IP
+changes (DHCP), re-run this script, then: docker compose restart
 ──────────────────────────────────────────────────────────────────────
 EOF
