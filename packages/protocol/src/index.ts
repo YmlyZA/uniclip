@@ -19,6 +19,15 @@ export const ClipboardFrameSchema = z
 
 export type ClipboardFrame = z.infer<typeof ClipboardFrameSchema>;
 
+export const DeleteFrameSchema = z
+  .object({
+    type: z.literal("delete"),
+    msgId: z.string().regex(ULID_REGEX),
+  })
+  .strict();
+
+export type DeleteFrame = z.infer<typeof DeleteFrameSchema>;
+
 export const HelloFrameSchema = z
   .object({
     type: z.literal("hello"),
@@ -65,11 +74,15 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   PeerJoinedFrameSchema,
   PeerLeftFrameSchema,
   ClipboardFrameSchema,
+  DeleteFrameSchema,
   ErrorFrameSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
-export const ClientFrameSchema = ClipboardFrameSchema;
+export const ClientFrameSchema = z.discriminatedUnion("type", [
+  ClipboardFrameSchema,
+  DeleteFrameSchema,
+]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
 // WS close codes (private range 4000–4999 per RFC 6455)
