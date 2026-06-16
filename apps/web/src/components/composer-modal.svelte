@@ -1,0 +1,90 @@
+<script lang="ts">
+  let {
+    text = $bindable(""),
+    over,
+    bytes,
+    onFill,
+    onSend,
+    onClose,
+  }: {
+    text: string;
+    over: boolean;
+    bytes: number;
+    onFill: () => void;
+    onSend: () => void;
+    onClose: () => void;
+  } = $props();
+
+  let area = $state<HTMLTextAreaElement>();
+  $effect(() => {
+    area?.focus();
+  });
+
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key === "Escape") onClose();
+  }
+  function kb(n: number): string {
+    return (n / 1024).toFixed(n < 10240 ? 1 : 0);
+  }
+</script>
+
+<svelte:window onkeydown={onWindowKey} />
+
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
+  role="presentation"
+  onclick={(e) => {
+    if (e.target === e.currentTarget) onClose();
+  }}
+  style="animation: item-arrive 0.18s ease-out"
+>
+  <div
+    class="flex max-h-[80dvh] w-full max-w-xl flex-col overflow-hidden rounded-card border border-border bg-elevated shadow-[var(--shadow-card)]"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Compose message"
+    tabindex="-1"
+  >
+    <div class="flex items-center justify-between border-b border-border px-5 py-3.5">
+      <h2 class="font-display text-base font-bold text-text">Compose</h2>
+      <button
+        type="button"
+        onclick={onClose}
+        class="grid h-8 w-8 place-items-center rounded-field text-muted transition hover:bg-surface-2 hover:text-text"
+        aria-label="Close"
+      >
+        <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+
+    <textarea
+      bind:this={area}
+      bind:value={text}
+      placeholder="Type or paste…"
+      class="min-h-48 flex-1 resize-none bg-transparent p-5 font-mono text-sm leading-relaxed text-text placeholder:font-sans placeholder:text-faint focus:outline-none"
+    ></textarea>
+
+    <div class="flex items-center gap-3 border-t border-border p-3">
+      <button
+        type="button"
+        onclick={onFill}
+        class="rounded-field border border-border px-3 py-1.5 text-sm text-muted transition hover:border-border-strong hover:text-text"
+      >
+        Fill from clipboard
+      </button>
+      <span class="ml-auto text-[11px] {over ? 'text-danger' : 'text-faint'}">{kb(bytes)} KB / 32 KB</span>
+      <button
+        type="button"
+        onclick={onSend}
+        disabled={!text.trim() || over}
+        class="rounded-field bg-accent px-4 py-1.5 text-sm font-bold text-accent-fg transition hover:bg-accent-bright disabled:opacity-40"
+      >
+        Send
+      </button>
+    </div>
+  </div>
+</div>
