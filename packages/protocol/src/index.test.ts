@@ -55,6 +55,27 @@ describe("ServerFrameSchema", () => {
       }),
     ).toBeDefined();
   });
+  it("accepts hello with an ephemeral flag", () => {
+    const f = ServerFrameSchema.parse({
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 1717000000000,
+      backfill: true,
+      ephemeral: true,
+    });
+    expect(f).toMatchObject({ type: "hello", ephemeral: true });
+  });
+  it("defaults ephemeral to false when the field is absent (rolling-deploy compat)", () => {
+    const f = ServerFrameSchema.parse({
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 1717000000000,
+      backfill: false,
+    });
+    expect(f).toMatchObject({ type: "hello", ephemeral: false });
+  });
   it("accepts error", () => {
     expect(
       ServerFrameSchema.parse({

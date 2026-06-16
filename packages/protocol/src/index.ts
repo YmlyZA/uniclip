@@ -37,6 +37,10 @@ export const HelloFrameSchema = z
     // Whether this room backfills recent clips to late joiners. Always false
     // for Mode B (the relay only buffers ciphertext it cannot decrypt).
     backfill: z.boolean(),
+    // Ephemeral rooms: no device persists history and items auto-expire on
+    // screen. Optional-with-default so a new client tolerates an old relay's
+    // hello (which lacks the field) during a rolling deploy.
+    ephemeral: z.boolean().optional().default(false),
   })
   .strict();
 
