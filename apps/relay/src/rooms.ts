@@ -12,6 +12,10 @@ export type RoomMode = "A" | "B";
 // Matches the client's localStorage history cap; bounded by MAX_FRAME_BYTES each.
 export const RECENT_CAP = 50;
 
+// How many deleted msgIds a room remembers, so a peer offline at delete-time can
+// reconcile on (re)join. msgId-only — carries no plaintext.
+export const TOMBSTONE_CAP = 200;
+
 export interface Room {
   id: string;
   mode: RoomMode;
@@ -22,6 +26,9 @@ export interface Room {
   // Mode A (where the relay cannot decrypt), and cleared when the room empties.
   recent: ClipboardFrame[];
   backfillEnabled: boolean;
+  // Deleted msgIds, replayed to (re)joiners so they drop locally-held items they
+  // missed the live delete for. Bounded; cleared when the room empties.
+  tombstones: string[];
 }
 
 export interface RoomStoreOptions {
@@ -64,6 +71,7 @@ export class RoomStore {
       createdAt: now,
       lastActivityAt: now,
       recent: [],
+      tombstones: [],
       // Mode B can be decrypted by the relay, so it never buffers regardless of
       // the requested flag — keeping retained data to ciphertext-only (Mode A).
       backfillEnabled: mode === "A" && backfill,
@@ -99,6 +107,17 @@ export class RoomStore {
     if (i >= 0) r.recent.splice(i, 1);
   }
 
+  // Record a deleted msgId for tombstone replay. Bounded FIFO; deduped.
+  addTombstone(id: string, msgId: string): void {
+    const r = this.rooms.get(id);
+    if (!r) return;
+    if (r.tombstones.includes(msgId)) return;
+    r.tombstones.push(msgId);
+    if (r.tombstones.length > TOMBSTONE_CAP) {
+      r.tombstones.splice(0, r.tombstones.length - TOMBSTONE_CAP);
+    }
+  }
+
   get(id: string): Room | undefined {
     const live = this.rooms.get(id);
     if (live) return live;
@@ -118,6 +137,7 @@ export class RoomStore {
       createdAt: rec.createdAt,
       lastActivityAt: Date.now(), // idle clock restarts on rehydrate; aged GC (createdAt-based) is the hard 24h ceiling
       recent: [],
+      tombstones: [],
       backfillEnabled: rec.backfillEnabled,
     };
     this.rooms.set(id, room);

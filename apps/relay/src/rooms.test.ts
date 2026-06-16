@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RoomStore, RECENT_CAP } from "./rooms";
+import { RoomStore, RECENT_CAP, TOMBSTONE_CAP } from "./rooms";
 import { ulid } from "ulid";
 import { Database } from "bun:sqlite";
 
@@ -138,6 +138,22 @@ describe("RoomStore", () => {
     s.removeRecent(r.id, f1.msgId);
     const buf = s.get(r.id)!.recent;
     expect(buf.map((f) => f.msgId)).toEqual([f2.msgId]);
+  });
+
+  it("addTombstone records deleted msgIds (deduped)", () => {
+    const s = new RoomStore();
+    const r = s.create("A");
+    s.addTombstone(r.id, "m1");
+    s.addTombstone(r.id, "m1"); // dedup
+    s.addTombstone(r.id, "m2");
+    expect(s.get(r.id)!.tombstones).toEqual(["m1", "m2"]);
+  });
+
+  it("tombstones are bounded to TOMBSTONE_CAP (oldest evicted)", () => {
+    const s = new RoomStore();
+    const r = s.create("A");
+    for (let i = 0; i < TOMBSTONE_CAP + 5; i++) s.addTombstone(r.id, `m${i}`);
+    expect(s.get(r.id)!.tombstones).toHaveLength(TOMBSTONE_CAP);
   });
 
   it("gc() sweeps an expired DB row that was evicted from the Map while idle", () => {
