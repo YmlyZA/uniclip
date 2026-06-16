@@ -157,17 +157,17 @@ describe("UniclipClient", () => {
     expect(gotTs).toBe(wire.ts);
   });
 
-  it("emits 'room' with the backfill flag from hello", async () => {
+  it("emits 'room' with backfill + ephemeral from hello", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
       relayBase: "wss://uniclip.app",
     });
-    let backfill: boolean | null = null;
-    client.on("room", (b: boolean) => (backfill = b));
+    let info: { backfill: boolean; ephemeral: boolean } | null = null;
+    client.on("room", (i: { backfill: boolean; ephemeral: boolean }) => (info = i));
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
-    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: true });
-    expect(backfill).toBe(true);
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: true, ephemeral: true });
+    expect(info).toEqual({ backfill: true, ephemeral: true });
   });
 
   it("send() returns the minted msgId and ts matching the wire frame", async () => {

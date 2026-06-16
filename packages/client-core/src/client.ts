@@ -12,7 +12,7 @@ export type ClientEvent =
   | { kind: "clip"; text: string; ts: number; msgId: string }
   | { kind: "delete"; msgId: string }
   | { kind: "peer"; count: number }
-  | { kind: "room"; backfill: boolean }
+  | { kind: "room"; backfill: boolean; ephemeral: boolean }
   | { kind: "error"; code: string; message: string };
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
@@ -22,7 +22,7 @@ export interface EventHandlers {
   clip: (text: string, ts: number, msgId: string) => void;
   delete: (msgId: string) => void;
   peer: (count: number) => void;
-  room: (backfill: boolean) => void;
+  room: (info: { backfill: boolean; ephemeral: boolean }) => void;
   error: (err: { code: string; message: string }) => void;
 }
 
@@ -68,7 +68,7 @@ export class UniclipClient {
         case "clip": (cb as EventHandlers["clip"])(evt.text, evt.ts, evt.msgId); break;
         case "delete": (cb as EventHandlers["delete"])(evt.msgId); break;
         case "peer": (cb as EventHandlers["peer"])(evt.count); break;
-        case "room": (cb as EventHandlers["room"])(evt.backfill); break;
+        case "room": (cb as EventHandlers["room"])({ backfill: evt.backfill, ephemeral: evt.ephemeral }); break;
         case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
       }
     }
@@ -119,7 +119,7 @@ export class UniclipClient {
       case "hello":
         this.emit({ kind: "status", value: "connected" });
         this.emit({ kind: "peer", count: frame.peerCount });
-        this.emit({ kind: "room", backfill: frame.backfill });
+        this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
         return;
       case "peer-joined":
       case "peer-left":

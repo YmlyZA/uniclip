@@ -44,7 +44,7 @@
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
-    c.on("room", (b) => (backfillOn = b));
+    c.on("room", (info) => (backfillOn = info.backfill));
     c.on("clip", async (text, ts, msgId) => {
       await addItem(text, ts, msgId, false);
     });
