@@ -5,6 +5,8 @@ import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
 import { deriveRoomKey } from "./room-key";
 
+const MAX_QUEUE = 100;
+
 export type Status = "connecting" | "connected" | "disconnected" | "reconnecting";
 
 export type ClientEvent =
@@ -13,7 +15,8 @@ export type ClientEvent =
   | { kind: "delete"; msgId: string }
   | { kind: "peer"; count: number }
   | { kind: "room"; backfill: boolean; ephemeral: boolean }
-  | { kind: "error"; code: string; message: string };
+  | { kind: "error"; code: string; message: string }
+  | { kind: "sent"; msgId: string };
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
 // backfilled clips sort by when they were sent, not when they were received.
@@ -24,6 +27,7 @@ export interface EventHandlers {
   peer: (count: number) => void;
   room: (info: { backfill: boolean; ephemeral: boolean }) => void;
   error: (err: { code: string; message: string }) => void;
+  sent: (msgId: string) => void;
 }
 
 export interface UniclipClientOptions {
@@ -38,6 +42,7 @@ export class UniclipClient {
   private ws: WebSocket | null = null;
   private listeners = new Map<keyof EventHandlers, Set<(...args: never[]) => void>>();
   private replay = new ReplaySet();
+  private queue: string[] = [];
   private backoff = new Backoff({ baseMs: 1000, maxMs: 30_000, jitter: 0.2 });
   private disposed = false;
   private decryptedOk = false;
@@ -70,6 +75,7 @@ export class UniclipClient {
         case "peer": (cb as EventHandlers["peer"])(evt.count); break;
         case "room": (cb as EventHandlers["room"])({ backfill: evt.backfill, ephemeral: evt.ephemeral }); break;
         case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
+        case "sent": (cb as EventHandlers["sent"])(evt.msgId); break;
       }
     }
   }
@@ -105,6 +111,16 @@ export class UniclipClient {
     setTimeout(() => this.openSocket(), delay);
   }
 
+  private flushQueue(): void {
+    while (this.queue.length > 0) {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return; // remainder stays queued
+      const payload = this.queue.shift()!;
+      this.ws.send(payload);
+      const { msgId } = JSON.parse(payload) as ClientFrame;
+      this.emit({ kind: "sent", msgId });
+    }
+  }
+
   private async handleFrame(raw: string): Promise<void> {
     let parsed: unknown;
     try {
@@ -120,6 +136,7 @@ export class UniclipClient {
         this.emit({ kind: "status", value: "connected" });
         this.emit({ kind: "peer", count: frame.peerCount });
         this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
+        this.flushQueue();
         return;
       case "peer-joined":
       case "peer-left":
@@ -163,10 +180,7 @@ export class UniclipClient {
     }
   }
 
-  async send(text: string): Promise<{ msgId: string; ts: number }> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error("not connected");
-    }
+  async send(text: string): Promise<{ msgId: string; ts: number; queued: boolean }> {
     if (!this.key) throw new Error("no key");
     const msgId = ulid();
     const ts = Date.now();
@@ -182,8 +196,22 @@ export class UniclipClient {
       ciphertext: toBase64(env.ciphertext),
       ts,
     };
-    this.ws.send(JSON.stringify(frame));
-    return { msgId, ts };
+    const payload = JSON.stringify(frame);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(payload);
+      return { msgId, ts, queued: false };
+    }
+    // Offline: queue for flush on the next hello. ts is frozen at composition.
+    this.queue.push(payload);
+    if (this.queue.length > MAX_QUEUE) {
+      this.queue.splice(0, this.queue.length - MAX_QUEUE);
+      this.emit({
+        kind: "error",
+        code: "QUEUE_FULL",
+        message: "offline queue full — oldest unsent items dropped",
+      });
+    }
+    return { msgId, ts, queued: true };
   }
 
   delete(msgId: string): void {

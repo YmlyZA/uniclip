@@ -237,6 +237,69 @@ describe("UniclipClient", () => {
     expect(got).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
 
+  it("send() while the socket is not OPEN enqueues and returns queued:true", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED; // offline, without triggering reconnect
+    const res = await client.send("queued while offline");
+    expect(res.queued).toBe(true);
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  it("flushes queued frames in order on the next hello, emitting 'sent'", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED;
+    const a = await client.send("one");
+    const b = await client.send("two");
+    expect(ws.sent).toHaveLength(0);
+
+    const sentIds: string[] = [];
+    client.on("sent", (id: string) => sentIds.push(id));
+    ws.readyState = MockWebSocket.OPEN; // socket back
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+
+    expect(ws.sent).toHaveLength(2);
+    expect(JSON.parse(ws.sent[0]!).msgId).toBe(a.msgId);
+    expect(JSON.parse(ws.sent[1]!).msgId).toBe(b.msgId);
+    expect(JSON.parse(ws.sent[0]!).ts).toBe(a.ts); // ts frozen at composition
+    expect(sentIds).toEqual([a.msgId, b.msgId]);
+  });
+
+  it("bounds the queue to MAX_QUEUE (drops oldest, emits QUEUE_FULL)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED;
+
+    let queueFull = 0;
+    client.on("error", (e: { code: string }) => { if (e.code === "QUEUE_FULL") queueFull++; });
+
+    const first = await client.send("oldest");
+    for (let i = 0; i < 100; i++) await client.send(`m${i}`); // 101 enqueued, one overflow
+
+    expect(queueFull).toBe(1);
+    ws.readyState = MockWebSocket.OPEN;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+
+    expect(ws.sent).toHaveLength(100); // capped at MAX_QUEUE
+    expect(ws.sent.some((s) => JSON.parse(s).msgId === first.msgId)).toBe(false); // oldest dropped
+  });
+
   it("emits DECRYPT_FAILED when frames can't be decrypted (wrong/missing key)", async () => {
     // Sender is Mode A (has the #secret). Receiver opens the SAME routingId WITHOUT
     // the secret → Mode B → derives a different key → every frame fails to decrypt.
