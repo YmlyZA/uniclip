@@ -38,6 +38,7 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             peerCount: room.sockets.size,
             serverTime: Date.now(),
             backfill: room.backfillEnabled,
+            ephemeral: room.ephemeral,
           });
           // Backfill recent clips to this newcomer only — existing peers already
           // have them, and the client's ReplaySet dedups by msgId.

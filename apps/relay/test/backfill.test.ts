@@ -23,7 +23,7 @@ afterEach(() => {
   server = null;
 });
 
-async function mintRoom(body: { mode: "A" | "B"; backfill?: boolean }): Promise<string> {
+async function mintRoom(body: { mode: "A" | "B"; backfill?: boolean; ephemeral?: boolean }): Promise<string> {
   const res = await fetch(`${baseHttp}/api/room`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -80,6 +80,17 @@ describe("Mode-A backfill to late joiners", () => {
     await wait(20);
     expect(msgs[0].type).toBe("hello");
     expect(msgs[0].backfill).toBe(true);
+    a.close();
+  });
+
+  it("hello carries ephemeral:true for an ephemeral room", async () => {
+    const id = await mintRoom({ mode: "A", ephemeral: true });
+    const msgs: any[] = [];
+    const a = await open(id, msgs);
+    await wait(20);
+    expect(msgs[0].type).toBe("hello");
+    expect(msgs[0].ephemeral).toBe(true);
+    expect(msgs[0].backfill).toBe(false);
     a.close();
   });
 

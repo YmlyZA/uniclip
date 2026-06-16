@@ -41,4 +41,17 @@ describe("POST /api/room", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("POST /api/room with ephemeral:true creates an ephemeral room", async () => {
+    const store = new RoomStore();
+    const app = buildApp({ roomCount: () => store.count, store });
+    const res = await app.request("/api/room", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "A", ephemeral: true }),
+    });
+    const body = (await res.json()) as { roomId: string };
+    expect(store.get(body.roomId)?.ephemeral).toBe(true);
+    expect(store.get(body.roomId)?.backfillEnabled).toBe(false);
+  });
 });
