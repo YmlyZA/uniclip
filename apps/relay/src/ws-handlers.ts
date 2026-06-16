@@ -44,6 +44,11 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           if (room.backfillEnabled) {
             for (const frame of room.recent) send(raw, frame);
           }
+          // Replay deletions to this newcomer too, so a device that was offline
+          // when an item was deleted removes it on (re)join. Independent of
+          // backfill — a tombstone is a msgId only, and `persist.remove` is a
+          // no-op on a device that never had the item.
+          for (const msgId of room.tombstones) send(raw, { type: "delete", msgId });
           broadcast(room.sockets, raw, {
             type: "peer-joined",
             peerCount: room.sockets.size,
@@ -58,7 +63,10 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           store.touch(room.id);
           // History lives only while the room is occupied: drop the buffer once
           // the last device leaves.
-          if (room.sockets.size === 0) room.recent.length = 0;
+          if (room.sockets.size === 0) {
+            room.recent.length = 0;
+            room.tombstones.length = 0;
+          }
           broadcast(room.sockets, raw, {
             type: "peer-left",
             peerCount: room.sockets.size,
@@ -113,8 +121,10 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             // Buffer for late joiners (no-op unless Mode A + backfill enabled).
             store.pushRecent(room.id, result.data);
           } else {
-            // delete: drop it from the ring so a late joiner won't get it back.
+            // delete: drop it from the ring so a late joiner won't get it back,
+            // and remember it so a peer offline now can reconcile on (re)join.
             store.removeRecent(room.id, result.data.msgId);
+            store.addTombstone(room.id, result.data.msgId);
           }
         },
       };

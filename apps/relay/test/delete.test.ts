@@ -83,4 +83,42 @@ describe("delete frame fan-out", () => {
     a.close();
     c.close();
   });
+
+  it("replays tombstones to a device that joins after the delete", async () => {
+    const id = await mintRoom();
+    const aMsgs: any[] = [];
+    const a = await open(id, aMsgs);
+    const clip = makeClip();
+    a.send(JSON.stringify(clip));
+    await wait(30);
+    a.send(JSON.stringify({ type: "delete", msgId: clip.msgId }));
+    await wait(30);
+
+    // A new device joins AFTER the delete — it must receive the tombstone.
+    const bMsgs: any[] = [];
+    const b = await open(id, bMsgs);
+    await wait(30);
+    expect(bMsgs.filter((m) => m.type === "delete").map((m) => m.msgId)).toContain(clip.msgId);
+    a.close();
+    b.close();
+  });
+
+  it("clears tombstones once the room empties", async () => {
+    const id = await mintRoom();
+    const aMsgs: any[] = [];
+    const a = await open(id, aMsgs);
+    const clip = makeClip();
+    a.send(JSON.stringify(clip));
+    await wait(30);
+    a.send(JSON.stringify({ type: "delete", msgId: clip.msgId }));
+    await wait(30);
+    a.close();
+    await wait(40); // room empties → tombstones cleared
+
+    const bMsgs: any[] = [];
+    const b = await open(id, bMsgs);
+    await wait(30);
+    expect(bMsgs.filter((m) => m.type === "delete")).toHaveLength(0);
+    b.close();
+  });
 });
