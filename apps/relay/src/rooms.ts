@@ -29,6 +29,9 @@ export interface Room {
   // Deleted msgIds, replayed to (re)joiners so they drop locally-held items they
   // missed the live delete for. Bounded; cleared when the room empties.
   tombstones: string[];
+  // Ephemeral rooms: no device persists history; items auto-expire client-side.
+  // Stored as metadata only — the relay never sees plaintext regardless.
+  ephemeral: boolean;
 }
 
 export interface RoomStoreOptions {
@@ -60,7 +63,7 @@ export class RoomStore {
     return this.roomDb.count(Date.now());
   }
 
-  create(mode: RoomMode, backfill = true): Room {
+  create(mode: RoomMode, backfill = true, ephemeral = false): Room {
     const id =
       mode === "A" ? generateModeARoom().routingId : generateModeBCode();
     const now = Date.now();
@@ -73,8 +76,10 @@ export class RoomStore {
       recent: [],
       tombstones: [],
       // Mode B can be decrypted by the relay, so it never buffers regardless of
-      // the requested flag — keeping retained data to ciphertext-only (Mode A).
-      backfillEnabled: mode === "A" && backfill,
+      // the requested flag. Ephemeral rooms buffer nothing either — they retain
+      // no history anywhere, so backfill is forced off.
+      backfillEnabled: mode === "A" && backfill && !ephemeral,
+      ephemeral,
     };
     this.rooms.set(id, room);
     this.roomDb.insert({
@@ -83,6 +88,7 @@ export class RoomStore {
       expiresAt: now + this.maxAgeMs,
       backfillEnabled: room.backfillEnabled,
       createdAt: now,
+      ephemeral,
     });
     return room;
   }
@@ -139,6 +145,7 @@ export class RoomStore {
       recent: [],
       tombstones: [],
       backfillEnabled: rec.backfillEnabled,
+      ephemeral: rec.ephemeral,
     };
     this.rooms.set(id, room);
     return room;

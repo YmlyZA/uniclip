@@ -7,6 +7,7 @@ export interface RoomRecord {
   expiresAt: number;
   backfillEnabled: boolean;
   createdAt: number;
+  ephemeral: boolean;
 }
 
 interface Row {
@@ -15,6 +16,7 @@ interface Row {
   expires_at: number;
   backfill_enabled: number;
   created_at: number;
+  ephemeral: number;
 }
 
 /**
@@ -33,9 +35,17 @@ export class RoomDb {
          mode             TEXT    NOT NULL,
          expires_at       INTEGER NOT NULL,
          backfill_enabled INTEGER NOT NULL,
-         created_at       INTEGER NOT NULL
+         created_at       INTEGER NOT NULL,
+         ephemeral        INTEGER NOT NULL DEFAULT 0
        )`,
     );
+    // Defensive migration: a DB created before this column existed (a deployed
+    // ROOM_DB_PATH file) won't get it from CREATE TABLE IF NOT EXISTS. Add it
+    // with a default so existing rows read back as non-ephemeral.
+    const cols = this.db.query(`PRAGMA table_info(rooms)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === "ephemeral")) {
+      this.db.run(`ALTER TABLE rooms ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 
   insert(rec: RoomRecord): void {
@@ -43,10 +53,17 @@ export class RoomDb {
     // supply every column (full-row upsert keyed by the PRIMARY KEY id).
     this.db
       .query(
-        `INSERT OR REPLACE INTO rooms (id, mode, expires_at, backfill_enabled, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO rooms (id, mode, expires_at, backfill_enabled, created_at, ephemeral)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(rec.id, rec.mode, rec.expiresAt, rec.backfillEnabled ? 1 : 0, rec.createdAt);
+      .run(
+        rec.id,
+        rec.mode,
+        rec.expiresAt,
+        rec.backfillEnabled ? 1 : 0,
+        rec.createdAt,
+        rec.ephemeral ? 1 : 0,
+      );
   }
 
   get(id: string): RoomRecord | undefined {
@@ -58,6 +75,7 @@ export class RoomDb {
       expiresAt: row.expires_at,
       backfillEnabled: row.backfill_enabled === 1,
       createdAt: row.created_at,
+      ephemeral: row.ephemeral === 1,
     };
   }
 

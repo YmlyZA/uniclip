@@ -9,7 +9,8 @@
   import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
   import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
-  import { PersistedItems, type Item } from "../lib/persist";
+  import { PersistedItems, EphemeralStore, type Item, type ItemStore } from "../lib/persist";
+  import { EPHEMERAL_TTL_MS, ExpiryScheduler } from "../lib/ephemeral";
   import { toast } from "../lib/toast";
 
   let { room }: { room: ParsedRoom } = $props();
@@ -32,7 +33,9 @@
   let showShare = $state(false);
   let backfillOn = $state(false);
   let keyError = $state(false);
-  let persist: PersistedItems | null = null;
+  let ephemeralOn = $state(false);
+  let persist: ItemStore | null = null;
+  let expiry: ExpiryScheduler | null = null;
   const watcher = new ClipboardWatcher({ intervalMs: 1000 });
 
   onMount(async () => {
@@ -44,12 +47,29 @@
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
-    c.on("room", (b) => (backfillOn = b));
+    c.on("room", (info) => {
+      backfillOn = info.backfill;
+      if (info.ephemeral && !ephemeralOn) {
+        // Switch to no-persist + TTL. A room created ephemeral has no prior
+        // persisted history, so resetting items is just belt-and-suspenders.
+        ephemeralOn = true;
+        persist = new EphemeralStore();
+        expiry = new ExpiryScheduler(EPHEMERAL_TTL_MS, (msgId) => {
+          items = items.filter((i) => i.id !== msgId);
+        });
+        items = [];
+      }
+    });
     c.on("clip", async (text, ts, msgId) => {
       await addItem(text, ts, msgId, false);
     });
+    c.on("sent", (msgId) => {
+      items = items.map((i) => (i.id === msgId ? { ...i, pending: false } : i));
+      if (ephemeralOn) expiry?.schedule(msgId);
+    });
     c.on("delete", async (msgId) => {
       items = items.filter((i) => i.id !== msgId);
+      expiry?.cancel(msgId);
       await persist?.remove(msgId);
     });
     c.on("error", (e) => {
@@ -60,29 +80,36 @@
 
     watcher.on(async (text) => {
       try {
-        const { msgId, ts } = await c.send(text);
-        await addItem(text, ts, msgId, true);
+        const { msgId, ts, queued } = await c.send(text);
+        await addItem(text, ts, msgId, true, queued);
       } catch {}
     });
   });
 
   onDestroy(() => {
     watcher.stop();
+    expiry?.clear();
     client?.disconnect();
   });
 
-  async function addItem(text: string, ts: number, msgId: string, mine: boolean) {
+  async function addItem(text: string, ts: number, msgId: string, mine: boolean, queued = false) {
     if (items.some((i) => i.id === msgId)) return;
-    const item: Item = { id: msgId, text, ts, mine };
+    const item: Item = { id: msgId, text, ts, mine, pending: queued };
     items = [...items, item].slice(-50);
-    await persist!.add(item);
+    // `pending` is transient UI state — never persist it, or a reload would show
+    // an already-delivered item stuck as "Queued" (the backfill clip replay is
+    // dropped by the id dedup guard above, so it could never clear).
+    await persist?.add({ id: msgId, text, ts, mine });
+    // Ephemeral TTL starts at DELIVERY. A queued item is not delivered yet, so
+    // its timer is scheduled later in the `sent` handler, not here.
+    if (ephemeralOn && !queued) expiry?.schedule(msgId);
   }
 
   async function sendText(text: string) {
     try {
       if (!client) return;
-      const { msgId, ts } = await client.send(text);
-      await addItem(text, ts, msgId, true);
+      const { msgId, ts, queued } = await client.send(text);
+      await addItem(text, ts, msgId, true, queued);
     } catch {
       toast("Send failed", "warn");
     }
@@ -98,12 +125,14 @@
 
   async function onDelete(id: string) {
     items = items.filter((i) => i.id !== id);
+    expiry?.cancel(id);
     await persist?.remove(id);
     client?.delete(id);
   }
 
   function clearHistory() {
     items = [];
+    expiry?.clear();
     persist?.clear();
     toast("History cleared", "info", 1200);
   }
@@ -134,6 +163,7 @@
     mode={room.mode}
     {peerCount}
     {status}
+    ephemeral={ephemeralOn}
     onShare={() => (showShare = true)}
     onClear={clearHistory}
     onEnd={endRoom}

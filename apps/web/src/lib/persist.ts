@@ -6,6 +6,8 @@ export interface Item {
   ts: number;
   /** True when this device sent the item; false/undefined when received. */
   mine?: boolean;
+  /** True while a sent item is still queued (offline) and not yet delivered. */
+  pending?: boolean;
 }
 
 export interface PersistOptions {
@@ -14,7 +16,15 @@ export interface PersistOptions {
   cap: number;
 }
 
-export class PersistedItems {
+/** Storage contract shared by the persisting and ephemeral implementations. */
+export interface ItemStore {
+  load(): Promise<Item[]>;
+  add(item: Item): Promise<void>;
+  remove(id: string): Promise<void>;
+  clear(): void;
+}
+
+export class PersistedItems implements ItemStore {
   private items: Item[] = [];
   private readonly storageKey: string;
   private readonly opts: PersistOptions;
@@ -85,5 +95,24 @@ export class PersistedItems {
         await this.save();
       }
     }
+  }
+}
+
+/**
+ * No-op store for ephemeral rooms: items live only in the in-memory `items`
+ * list (held by room.svelte), so nothing is ever written to localStorage.
+ */
+export class EphemeralStore implements ItemStore {
+  async load(): Promise<Item[]> {
+    return [];
+  }
+  async add(_item: Item): Promise<void> {
+    /* intentionally not persisted */
+  }
+  async remove(_id: string): Promise<void> {
+    /* intentionally not persisted */
+  }
+  clear(): void {
+    /* nothing to clear */
   }
 }

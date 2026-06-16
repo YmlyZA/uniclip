@@ -50,4 +50,17 @@ describe("PersistedItems", () => {
     const loaded = await p.load();
     expect(loaded).toHaveLength(1);
   });
+
+  it("EphemeralStore never touches localStorage", async () => {
+    const { EphemeralStore } = await import("./persist");
+    let writes = 0;
+    const real = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = (...a: [string, string]) => { writes++; return real(...a); };
+    const s = new EphemeralStore();
+    await s.add({ id: "1", text: "secret", ts: 1 });
+    await s.remove("1");
+    s.clear();
+    expect(await s.load()).toEqual([]);
+    expect(writes).toBe(0);
+  });
 });

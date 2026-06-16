@@ -9,6 +9,7 @@
 
   let mode: "A" | "B" = $state("A");
   let backfill = $state(true);
+  let ephemeral = $state(false);
   let joinCode = $state("");
   let creating = $state(false);
 
@@ -18,7 +19,11 @@
       const res = await fetch(`${relayBase}/api/room`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode, backfill: mode === "A" ? backfill : false }),
+        body: JSON.stringify({
+          mode,
+          backfill: mode === "A" && !ephemeral ? backfill : false,
+          ephemeral,
+        }),
       });
       if (!res.ok) {
         toast(res.status === 429 ? "Too many rooms — try again shortly" : "Couldn't create room", "warn");
@@ -129,10 +134,11 @@
       </div>
 
       {#if mode === "A"}
-        <label class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-field border border-border bg-surface-2 p-3 text-sm">
+        <label class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-field border border-border bg-surface-2 p-3 text-sm {ephemeral ? 'opacity-50' : ''}">
           <input
             type="checkbox"
             bind:checked={backfill}
+            disabled={ephemeral}
             class="mt-0.5 h-4 w-4 accent-[var(--accent)]"
           />
           <span>
@@ -141,6 +147,18 @@
           </span>
         </label>
       {/if}
+
+      <label class="mt-2 flex cursor-pointer items-start gap-2.5 rounded-field border border-border bg-surface-2 p-3 text-sm">
+        <input
+          type="checkbox"
+          bind:checked={ephemeral}
+          class="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+        />
+        <span>
+          <span class="font-medium text-text">Ephemeral — don't save anything</span>
+          <span class="mt-0.5 block text-xs text-muted">Nothing is written to disk on any device, and items vanish 60s after they arrive. Good for passwords and one-time codes.</span>
+        </span>
+      </label>
 
       <button
         type="button"
