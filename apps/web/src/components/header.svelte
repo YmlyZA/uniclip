@@ -9,6 +9,7 @@
     mode,
     peerCount,
     status,
+    ephemeral = false,
     onShare,
     onClear,
     onEnd,
@@ -17,6 +18,7 @@
     mode: "A" | "B";
     peerCount: number;
     status: "connecting" | "connected" | "reconnecting" | "disconnected";
+    ephemeral?: boolean;
     onShare: () => void;
     onClear: () => void;
     onEnd: () => void;
@@ -45,6 +47,18 @@
       <span class="text-faint">room</span>
       <span class="font-semibold text-text">{roomId}</span>
     </span>
+
+    {#if ephemeral}
+      <span
+        class="inline-flex items-center gap-1 rounded-field border border-warn/40 bg-warn-soft px-2 py-1 text-[11px] font-semibold text-warn"
+        title="Nothing is saved on any device; items vanish after 60s"
+      >
+        <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
+          <path d="M7 4h10M7 20h10M8 4c0 5 8 5 8 0M8 20c0-5 8-5 8 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        Ephemeral · not saved
+      </span>
+    {/if}
 
     <div class="ml-auto flex items-center gap-2">
       <StatusPill {status} />
