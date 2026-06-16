@@ -41,6 +41,7 @@
     onclick={copy}
     title="Click to copy"
     class="relative min-w-0 max-w-[88%] flex-1 overflow-hidden rounded-card border px-3.5 py-2.5 text-left transition
+      {item.pending ? 'opacity-60' : ''}
       {mine
       ? 'border-accent/30 bg-accent-soft'
       : 'border-border bg-surface hover:border-border-strong'}"
@@ -52,6 +53,15 @@
         {mine ? "You" : "Peer"}
       </span>
       <span class="text-faint">· {ago(item.ts)} ago</span>
+      {#if item.pending}
+        <span class="inline-flex items-center gap-1 text-warn" title="Queued — will send when reconnected">
+          <svg viewBox="0 0 24 24" fill="none" class="h-3 w-3" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8" />
+            <path d="M12 8v4l2.5 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Queued
+        </span>
+      {/if}
       <span class="ml-auto flex items-center gap-1 text-faint transition group-hover/row:text-muted">
         <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
           <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.6" />

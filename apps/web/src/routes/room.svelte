@@ -63,6 +63,10 @@
     c.on("clip", async (text, ts, msgId) => {
       await addItem(text, ts, msgId, false);
     });
+    c.on("sent", (msgId) => {
+      items = items.map((i) => (i.id === msgId ? { ...i, pending: false } : i));
+      if (ephemeralOn) expiry?.schedule(msgId);
+    });
     c.on("delete", async (msgId) => {
       items = items.filter((i) => i.id !== msgId);
       expiry?.cancel(msgId);
@@ -76,8 +80,8 @@
 
     watcher.on(async (text) => {
       try {
-        const { msgId, ts } = await c.send(text);
-        await addItem(text, ts, msgId, true);
+        const { msgId, ts, queued } = await c.send(text);
+        await addItem(text, ts, msgId, true, queued);
       } catch {}
     });
   });
@@ -88,20 +92,24 @@
     client?.disconnect();
   });
 
-  async function addItem(text: string, ts: number, msgId: string, mine: boolean) {
+  async function addItem(text: string, ts: number, msgId: string, mine: boolean, queued = false) {
     if (items.some((i) => i.id === msgId)) return;
-    const item: Item = { id: msgId, text, ts, mine };
+    const item: Item = { id: msgId, text, ts, mine, pending: queued };
     items = [...items, item].slice(-50);
-    await persist?.add(item);
-    // Ephemeral: each delivered item starts its TTL now (delivery time).
-    if (ephemeralOn) expiry?.schedule(msgId);
+    // `pending` is transient UI state — never persist it, or a reload would show
+    // an already-delivered item stuck as "Queued" (the backfill clip replay is
+    // dropped by the id dedup guard above, so it could never clear).
+    await persist?.add({ id: msgId, text, ts, mine });
+    // Ephemeral TTL starts at DELIVERY. A queued item is not delivered yet, so
+    // its timer is scheduled later in the `sent` handler, not here.
+    if (ephemeralOn && !queued) expiry?.schedule(msgId);
   }
 
   async function sendText(text: string) {
     try {
       if (!client) return;
-      const { msgId, ts } = await client.send(text);
-      await addItem(text, ts, msgId, true);
+      const { msgId, ts, queued } = await client.send(text);
+      await addItem(text, ts, msgId, true, queued);
     } catch {
       toast("Send failed", "warn");
     }

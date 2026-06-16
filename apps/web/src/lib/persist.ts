@@ -6,6 +6,8 @@ export interface Item {
   ts: number;
   /** True when this device sent the item; false/undefined when received. */
   mine?: boolean;
+  /** True while a sent item is still queued (offline) and not yet delivered. */
+  pending?: boolean;
 }
 
 export interface PersistOptions {
