@@ -156,6 +156,29 @@ describe("RoomStore", () => {
     expect(s.get(r.id)!.tombstones).toHaveLength(TOMBSTONE_CAP);
   });
 
+  it("create with ephemeral stores it and forces backfill off", () => {
+    const s = new RoomStore();
+    const r = s.create("A", true, true); // backfill requested true, but ephemeral
+    expect(r.ephemeral).toBe(true);
+    expect(r.backfillEnabled).toBe(false);
+  });
+
+  it("non-ephemeral Mode-A room keeps backfill (regression)", () => {
+    const s = new RoomStore();
+    const r = s.create("A", true, false);
+    expect(r.ephemeral).toBe(false);
+    expect(r.backfillEnabled).toBe(true);
+  });
+
+  it("rehydrates ephemeral from the DB on a Map miss", () => {
+    const db = new Database(":memory:");
+    const s1 = new RoomStore({ db });
+    const r = s1.create("A", false, true);
+    const s2 = new RoomStore({ db }); // fresh cache, same DB → forces a rehydrate
+    const got = s2.get(r.id);
+    expect(got?.ephemeral).toBe(true);
+  });
+
   it("gc() sweeps an expired DB row that was evicted from the Map while idle", () => {
     const db = new Database(":memory:");
     const s = new RoomStore({ db, idleTimeoutMs: 5 * 60_000, maxAgeMs: 10 * 60_000 });
