@@ -85,7 +85,7 @@ A queued item must **not** begin its 60s TTL until it is actually delivered, or 
 - **Backfill in an ephemeral room**: forced off at create time, so a joiner receives no `recent` clips; only live items arrive and each gets a delivery-time TTL.
 
 ## 6. Testing
-- **protocol unit**: `HelloFrameSchema` parses a frame including `ephemeral`; rejects a hello missing it (strict).
+- **protocol unit**: `HelloFrameSchema` parses a frame including `ephemeral`; and parses a hello *omitting* it, defaulting `ephemeral` to `false` (rolling-deploy compat — see §2).
 - **relay unit/integration**: `create(mode, backfill, ephemeral:true)` stores `ephemeral` and forces `backfillEnabled:false`; `get()` after a Map miss rehydrates `ephemeral` from the DB; the hello frame carries `ephemeral`.
 - **client-core unit**: `send` while the socket is closed enqueues and returns `queued:true` without throwing; on a simulated `hello` the queue flushes in order and emits `sent` per msgId; the queue is bounded to `MAX_QUEUE` (oldest dropped, `QUEUE_FULL` emitted); `ts` equals composition time, not flush time; the `room` event delivers `{ backfill, ephemeral }`.
 - **web unit**: `EphemeralStore` satisfies `ItemStore` and never writes `localStorage` (spy on `setItem`); `ExpiryScheduler` fires `onExpire(msgId)` after `EPHEMERAL_TTL_MS`, is idempotent per msgId, and `cancel`/`clear` reap pending timers (Vitest fake timers). The "queued item's TTL starts on `sent`, not at add" rule is enforced in `room.svelte` wiring (only `scheduleExpiry` for non-queued items at add; schedule in the `sent` handler for queued ones) and is exercised end-to-end by the e2e queue test.
