@@ -165,6 +165,19 @@
   }
 }
 
+/* iOS Safari auto-zooms the page when a focused form field's font is < 16px.
+   Force 16px on touch devices to suppress it — without the maximum-scale
+   viewport hack, which would disable accessibility pinch-zoom. `!important`
+   beats the per-field Tailwind text-size utilities; desktop (pointer: fine)
+   keeps its smaller, crafted sizes. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* ── Signature effect utilities ───────────────────────────────────────────── */
 @utility glow-ring {
   box-shadow: 0 0 0 1px var(--accent-soft), 0 0 28px -8px var(--glow);
