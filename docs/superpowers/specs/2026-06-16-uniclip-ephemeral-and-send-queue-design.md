@@ -34,7 +34,7 @@ Ephemeral is available for **both** Mode A and Mode B (it is orthogonal to who c
 - `app.ts`: `CreateRoomBody` Zod schema gains `ephemeral: z.boolean().optional()`; the handler calls `deps.store.create(parsed.data.mode, parsed.data.backfill ?? true, parsed.data.ephemeral ?? false)`.
 
 ### Protocol (`packages/protocol`)
-- `HelloFrameSchema`: add `ephemeral: z.boolean()`. (Additive, `.strict()` object — every hello now carries it.)
+- `HelloFrameSchema`: add `ephemeral: z.boolean().optional().default(false)`. Optional-with-default (not hard-required) for rolling-deploy compatibility: a new client talking to an old relay (whose hello lacks the field) still parses, defaulting to non-ephemeral, instead of rejecting the hello outright. The relay always sets it in real traffic.
 
 ### `ws-handlers.ts`
 - The hello build (currently sets `backfill: room.backfillEnabled`) also sets `ephemeral: room.ephemeral`.
@@ -43,7 +43,8 @@ Ephemeral is available for **both** Mode A and Mode B (it is orthogonal to who c
 - The `room` event payload changes from `{ backfill: boolean }` to `{ backfill: boolean; ephemeral: boolean }`. Update `ClientEvent`, `EventHandlers`, the `emit` switch, and the `hello` case in `handleFrame` to pass both fields.
 
 ### Web (`apps/web`)
-- `lib/persist.ts`: extract an `ItemStore` interface (`load(): Promise<Item[]>`, `add(item): Promise<void>`, `remove(id): Promise<void>`, `clear(): void`). `PersistedItems` implements it unchanged. Add a new **`EphemeralStore`** implementing `ItemStore` as a Null Object: `load()` resolves `[]`, `add`/`remove` resolve without touching `localStorage`, `clear()` is a no-op. Export an `EPHEMERAL_TTL_MS = 60_000` constant from `lib/persist.ts` (next to `EphemeralStore`).
+- `lib/persist.ts`: extract an `ItemStore` interface (`load(): Promise<Item[]>`, `add(item): Promise<void>`, `remove(id): Promise<void>`, `clear(): void`). `PersistedItems` implements it unchanged. Add a new **`EphemeralStore`** implementing `ItemStore` as a Null Object: `load()` resolves `[]`, `add`/`remove` resolve without touching `localStorage`, `clear()` is a no-op.
+- `lib/ephemeral.ts` (new): export `EPHEMERAL_TTL_MS = 60_000` and a small `ExpiryScheduler` class (`schedule(msgId)`, `cancel(msgId)`, `clear()`) that owns the per-item timers and invokes an `onExpire(msgId)` callback. Keeping the timer logic here (separate from storage) makes the TTL behavior unit-testable with fake timers, without mounting `room.svelte`.
 - `routes/landing.svelte`: add an `ephemeral` toggle (a `$state` boolean) shown for both modes. When `ephemeral` is on, disable the backfill toggle (it is forced off server-side). The POST body includes `ephemeral`.
 - `routes/room.svelte`:
   - Receive `ephemeral` from the `room` event into a `$state`.
@@ -87,7 +88,7 @@ A queued item must **not** begin its 60s TTL until it is actually delivered, or 
 - **protocol unit**: `HelloFrameSchema` parses a frame including `ephemeral`; rejects a hello missing it (strict).
 - **relay unit/integration**: `create(mode, backfill, ephemeral:true)` stores `ephemeral` and forces `backfillEnabled:false`; `get()` after a Map miss rehydrates `ephemeral` from the DB; the hello frame carries `ephemeral`.
 - **client-core unit**: `send` while the socket is closed enqueues and returns `queued:true` without throwing; on a simulated `hello` the queue flushes in order and emits `sent` per msgId; the queue is bounded to `MAX_QUEUE` (oldest dropped, `QUEUE_FULL` emitted); `ts` equals composition time, not flush time; the `room` event delivers `{ backfill, ephemeral }`.
-- **web unit**: `EphemeralStore` satisfies `ItemStore` and never writes `localStorage` (spy on `setItem`); `room.svelte` schedules expiry for delivered items and starts a queued item's TTL on `sent` rather than at add (Vitest fake timers); the pending flag toggles on `sent`.
+- **web unit**: `EphemeralStore` satisfies `ItemStore` and never writes `localStorage` (spy on `setItem`); `ExpiryScheduler` fires `onExpire(msgId)` after `EPHEMERAL_TTL_MS`, is idempotent per msgId, and `cancel`/`clear` reap pending timers (Vitest fake timers). The "queued item's TTL starts on `sent`, not at add" rule is enforced in `room.svelte` wiring (only `scheduleExpiry` for non-queued items at add; schedule in the `sent` handler for queued ones) and is exercised end-to-end by the e2e queue test.
 - **e2e**:
   - **Ephemeral no-persist** (fast, no 60s wait): A creates an ephemeral room and sends a clip; B sees it; **reload B → the list is empty** (nothing was persisted). Assert the room header shows the ephemeral badge.
   - **Offline queue**: with A connected, block/drop A's socket (e.g. route abort or relay restart); type and send → the item shows the pending state; restore connectivity → the item loses pending and B receives the clip.
