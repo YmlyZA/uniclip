@@ -222,6 +222,64 @@ describe("UniclipClient", () => {
     expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
   });
 
+  it("delete() while the socket is not OPEN queues the delete and flushes it on the next hello", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED; // offline
+    client.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(ws.sent).toHaveLength(0); // nothing went out while offline
+
+    ws.readyState = MockWebSocket.OPEN; // back online
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+  });
+
+  it("delete() of a still-queued clip drops it from the queue instead of sending a delete", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED; // offline
+    const a = await client.send("composed then deleted offline");
+    client.delete(a.msgId); // delete it before it was ever sent
+
+    ws.readyState = MockWebSocket.OPEN;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    // The clip was dropped from the queue and no delete was queued: peers never
+    // saw it, so there is nothing to send at all.
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  it("flushQueue emits 'sent' only for clip frames, not queued deletes", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.readyState = MockWebSocket.CLOSED;
+    const a = await client.send("a clip");
+    client.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV"); // a delete for an item not in the queue
+
+    const sentIds: string[] = [];
+    client.on("sent", (id: string) => sentIds.push(id));
+    ws.readyState = MockWebSocket.OPEN;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+
+    expect(ws.sent).toHaveLength(2); // clip then delete, in order
+    expect(sentIds).toEqual([a.msgId]); // 'sent' fired only for the clip
+  });
+
   it("emits 'delete' with the msgId when a delete frame arrives", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
