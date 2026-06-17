@@ -116,8 +116,23 @@ export class UniclipClient {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return; // remainder stays queued
       const payload = this.queue.shift()!;
       this.ws.send(payload);
-      const { msgId } = JSON.parse(payload) as ClientFrame;
-      this.emit({ kind: "sent", msgId });
+      const frame = JSON.parse(payload) as ClientFrame;
+      // `sent` clears a clip's pending UI; a flushed delete has no pending item.
+      if (frame.type === "clip") this.emit({ kind: "sent", msgId: frame.msgId });
+    }
+  }
+
+  // Append a serialized frame to the offline queue, bounded FIFO. Shared by the
+  // offline paths of send() and delete().
+  private enqueue(payload: string): void {
+    this.queue.push(payload);
+    if (this.queue.length > MAX_QUEUE) {
+      this.queue.splice(0, this.queue.length - MAX_QUEUE);
+      this.emit({
+        kind: "error",
+        code: "QUEUE_FULL",
+        message: "offline queue full — oldest unsent items dropped",
+      });
     }
   }
 
@@ -202,22 +217,29 @@ export class UniclipClient {
       return { msgId, ts, queued: false };
     }
     // Offline: queue for flush on the next hello. ts is frozen at composition.
-    this.queue.push(payload);
-    if (this.queue.length > MAX_QUEUE) {
-      this.queue.splice(0, this.queue.length - MAX_QUEUE);
-      this.emit({
-        kind: "error",
-        code: "QUEUE_FULL",
-        message: "offline queue full — oldest unsent items dropped",
-      });
-    }
+    this.enqueue(payload);
     return { msgId, ts, queued: true };
   }
 
   delete(msgId: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const frame: ClientFrame = { type: "delete", msgId };
-    this.ws.send(JSON.stringify(frame));
+    const payload = JSON.stringify(frame);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(payload);
+      return;
+    }
+    // Offline. If the target clip is itself still queued (composed but never
+    // sent), drop it from the queue rather than queue a delete — no peer ever
+    // saw it, so there is nothing to delete remotely.
+    const i = this.queue.findIndex((p) => {
+      const f = JSON.parse(p) as ClientFrame;
+      return f.type === "clip" && f.msgId === msgId;
+    });
+    if (i >= 0) {
+      this.queue.splice(i, 1);
+      return;
+    }
+    this.enqueue(payload);
   }
 
   disconnect(): void {

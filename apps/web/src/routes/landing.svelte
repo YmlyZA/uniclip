@@ -157,6 +157,9 @@
         <span>
           <span class="font-medium text-text">Ephemeral — don't save anything</span>
           <span class="mt-0.5 block text-xs text-muted">Nothing is written to disk on any device, and items vanish 60s after they arrive. Good for passwords and one-time codes.</span>
+          {#if mode === "B"}
+            <span class="mt-1 block text-xs font-medium text-warn">A Typed-code room is still readable by the server — pick Zero-knowledge for full privacy.</span>
+          {/if}
         </span>
       </label>
 
