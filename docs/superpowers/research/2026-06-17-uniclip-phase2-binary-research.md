@@ -44,18 +44,33 @@ The spike test was a throwaway (`packages/crypto/src/chunked-aead.spike.test.ts`
 - A `sha256(data) → hex` helper for the manifest hash.
 - Keep helpers returning `Uint8Array<ArrayBuffer>` (TS 5.7 / WebCrypto `BufferSource`).
 
-## Still-open spikes (recommended before/with the spec)
-- **Spike B — relay under load:** N concurrent chunked transfers through the in-memory fan-out. Does it hold? Is per-room/socket transfer backpressure or a concurrent-transfer cap needed? (The relay currently has per-socket/IP frame-rate limits — a sustained chunk stream may trip them; the limit may need a separate budget for `file-chunk`.)
-- **Spike C — browser limits on the constrained target (iOS Safari):** Blob reassembly memory ceiling for large files; `navigator.clipboard.read()` for pasting an image; download trigger reliability. (At-rest is download-and-forget, so OPFS is NOT needed for v0.2.)
+## Spike B — relay under chunked load (DONE)
+
+Empirically confirmed against the real `Bun.serve` relay (throwaway test, removed). Two findings, both of which shape the v0.2 protocol:
+
+### Finding B1 (CRITICAL) — the frame rate limiter kills a transfer
+The per-socket `frameLimiter = SlidingWindowLimiter(20, 10_000)` (20 frames / 10 s) counts **every** valid frame. A ~1 MB file at ~24 KB/chunk ≈ 42 `file-chunk` frames sent back-to-back trips the limit at frame 21: the relay emits a `RATE_LIMIT` error and **closes the socket (4429)**. Measured: only 20 of 42 chunks fan out before the close. **Fire-and-forget chunking is impossible as-is.**
+- **v0.2 requirement:** `file-chunk` frames must NOT share the clip limiter's budget. Options: a separate, transfer-sized limiter (e.g. a byte/sec budget per socket), or exempt `file-chunk` from the frame-count limiter and bound transfer rate via flow control (B2) instead. The clip/delete limiter stays as-is for control frames.
+
+### Finding B2 (read-confirmed) — no backpressure handling
+`broadcast()` calls `ws.send(payload)` and ignores the return value. Bun's `ServerWebSocket.send` returns `-1` under backpressure; ignoring it means a **slow receiver makes the relay buffer the sender's chunks in memory**, unbounded, for the duration of a large transfer.
+- **v0.2 requirement:** flow control so the sender can't outrun the slowest receiver — a **credit/ack scheme** (receiver acks every K chunks; sender pauses until acked) and/or the relay gating on `ws.getBufferedAmount()` before forwarding. This also naturally bounds the rate, dovetailing with B1.
+
+### Net effect on the design
+The transfer protocol is **not** fire-and-forget. It needs flow control (acks/credits), which means the protocol sketch below gains a `file-ack` frame and the sender paces chunks. This is the single biggest delta Spike B surfaced.
+
+## Still-open spike
+- **Spike C — browser limits on the constrained target (iOS Safari):** Blob reassembly memory ceiling for large files; `navigator.clipboard.read()` for pasting an image; download trigger reliability. (At-rest is download-and-forget, so OPFS is NOT needed for v0.2.) Can be run during implementation rather than before the spec — it informs UI/size-cap details, not the protocol.
 
 ## Proposed v0.2 protocol surface (sketch — to be finalized in the spec)
 - `file-offer` `{ fileId, name, mime, size, chunkCount, hash }`
 - `file-accept` `{ fileId }` / `file-decline` `{ fileId }`
 - `file-chunk` `{ fileId, index, isFinal, iv, ciphertext }`
+- `file-ack` `{ fileId, upTo }` (receiver → sender flow control; sender pauses until acked — see Finding B2)
 - `file-complete` `{ fileId }` (sender signals end; receiver also knows from `isFinal` + count)
 - `file-cancel` `{ fileId }` (either side aborts)
 - `hello` gains `protocolVersion`.
-Rate-limit `file-chunk` on its own budget so a transfer doesn't trip the clip frame limiter.
+- **Rate limiting:** `file-chunk` gets its own budget, separate from the clip/delete frame limiter (Finding B1). The credit/ack flow control (B2) is the primary pace governor.
 
 ## Invariants to preserve (do not break)
 - Mode-A zero-knowledge: chunks are ciphertext the relay can't read; only `routingId` + opaque frames cross the wire.
