@@ -2,6 +2,17 @@ import { z } from "zod";
 
 export const MAX_FRAME_BYTES = 64 * 1024;
 
+export const PROTOCOL_VERSION = 1;
+
+// Binary transfer (Phase 2 v0.2). CHUNK_BYTES is sized so a base64+JSON frame
+// stays under MAX_FRAME_BYTES; the rest are engine tunables.
+export const CHUNK_BYTES = 32 * 1024;
+export const INLINE_IMAGE_MAX = 256 * 1024;
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+export const CREDIT_WINDOW = 32;
+export const ACK_INTERVAL = 16;
+export const STALL_TIMEOUT_MS = 30_000;
+
 // ULID: 26 chars, Crockford alphabet (no I, L, O, U)
 export const ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
@@ -28,6 +39,52 @@ export const DeleteFrameSchema = z
 
 export type DeleteFrame = z.infer<typeof DeleteFrameSchema>;
 
+const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const FileOfferSchema = z
+  .object({
+    type: z.literal("file-offer"),
+    fileId: z.string().regex(ULID_REGEX),
+    name: z.string().max(255),
+    mime: z.string().max(255),
+    size: z.number().int().nonnegative(),
+    chunkCount: z.number().int().positive(),
+    hash: Sha256Hex,
+    inline: z.boolean(),
+  })
+  .strict();
+
+export const FileAcceptSchema = z
+  .object({ type: z.literal("file-accept"), fileId: z.string().regex(ULID_REGEX) })
+  .strict();
+
+export const FileDeclineSchema = z
+  .object({ type: z.literal("file-decline"), fileId: z.string().regex(ULID_REGEX) })
+  .strict();
+
+export const FileChunkSchema = z
+  .object({
+    type: z.literal("file-chunk"),
+    fileId: z.string().regex(ULID_REGEX),
+    index: z.number().int().nonnegative(),
+    isFinal: z.boolean(),
+    iv: Base64,
+    ciphertext: Base64,
+  })
+  .strict();
+
+export const FileAckSchema = z
+  .object({ type: z.literal("file-ack"), fileId: z.string().regex(ULID_REGEX), upTo: z.number().int().nonnegative() })
+  .strict();
+
+export const FileCompleteSchema = z
+  .object({ type: z.literal("file-complete"), fileId: z.string().regex(ULID_REGEX) })
+  .strict();
+
+export const FileCancelSchema = z
+  .object({ type: z.literal("file-cancel"), fileId: z.string().regex(ULID_REGEX), reason: z.string().max(120) })
+  .strict();
+
 export const HelloFrameSchema = z
   .object({
     type: z.literal("hello"),
@@ -41,6 +98,8 @@ export const HelloFrameSchema = z
     // screen. Optional-with-default so a new client tolerates an old relay's
     // hello (which lacks the field) during a rolling deploy.
     ephemeral: z.boolean().optional().default(false),
+    // Wire protocol version; lets an old client reject newer frames gracefully.
+    protocolVersion: z.number().int().optional().default(PROTOCOL_VERSION),
   })
   .strict();
 
@@ -80,12 +139,26 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   ClipboardFrameSchema,
   DeleteFrameSchema,
   ErrorFrameSchema,
+  FileOfferSchema,
+  FileAcceptSchema,
+  FileDeclineSchema,
+  FileChunkSchema,
+  FileAckSchema,
+  FileCompleteSchema,
+  FileCancelSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
 export const ClientFrameSchema = z.discriminatedUnion("type", [
   ClipboardFrameSchema,
   DeleteFrameSchema,
+  FileOfferSchema,
+  FileAcceptSchema,
+  FileDeclineSchema,
+  FileChunkSchema,
+  FileAckSchema,
+  FileCompleteSchema,
+  FileCancelSchema,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
