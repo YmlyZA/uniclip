@@ -80,6 +80,12 @@
         {#if isImage && item.blob}
           <button type="button" onclick={copyImage} class="rounded-field border border-border px-3 py-1 text-xs font-medium text-muted transition hover:text-text">Copy image</button>
         {/if}
+        {#if item.mine && !item.blob}
+          <span class="inline-flex items-center gap-1 text-xs font-medium text-accent">
+            <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true"><path d="M5 12.5l4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            Sent
+          </span>
+        {/if}
       </div>
     {:else if item.state === "error"}
       <div class="mt-1 text-xs text-danger">Transfer failed{item.errorMsg ? ` — ${item.errorMsg}` : ""}</div>
