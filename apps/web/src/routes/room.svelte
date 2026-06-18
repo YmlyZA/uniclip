@@ -6,6 +6,7 @@
   import ItemsList from "../components/items-list.svelte";
   import ShareModal from "../components/share-modal.svelte";
   import Composer from "../components/composer.svelte";
+  import DropOverlay from "../components/drop-overlay.svelte";
   import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
   import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
@@ -33,6 +34,8 @@
   let client = $state<UniclipClient | null>(null);
   let items = $state<Item[]>([]);
   let transfers = $state<TransferItem[]>([]);
+  let dragDepth = $state(0); // dragenter/leave fire on children; count to know when truly out
+  const dragging = $derived(dragDepth > 0);
   let peerCount = $state(1);
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
   let watching = $state(false);
@@ -149,6 +152,41 @@
     );
   }
 
+  function onPaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.kind === "file" && it.type.startsWith("image/")) {
+        const file = it.getAsFile();
+        if (file) {
+          e.preventDefault(); // image paste → send; don't also paste into a field
+          void sendFile(file);
+          return;
+        }
+      }
+    }
+    // no image → let normal text paste proceed
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (e.dataTransfer?.types.includes("Files")) {
+      e.preventDefault();
+      dragDepth += 1;
+    }
+  }
+  function onDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  }
+  function onDragLeave() {
+    if (dragDepth > 0) dragDepth -= 1;
+  }
+  function onDrop(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth = 0;
+    for (const file of Array.from(e.dataTransfer.files)) void sendFile(file);
+  }
+
   function acceptTransfer(fileId: string) {
     client?.acceptFile(fileId);
     transfers = markTransferring(transfers, fileId);
@@ -204,7 +242,17 @@
   }
 </script>
 
-<div class="flex min-h-[100dvh] flex-col">
+<svelte:window onpaste={onPaste} />
+
+<!-- Drag-and-drop is a pointer enhancement; the attach button is the keyboard-accessible path. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="flex min-h-[100dvh] flex-col"
+  ondragenter={onDragEnter}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
+>
   <Header
     roomId={room.routingId}
     mode={room.mode}
@@ -283,4 +331,8 @@
   {/if}
 
   <Toaster />
+
+  {#if dragging}
+    <DropOverlay />
+  {/if}
 </div>
