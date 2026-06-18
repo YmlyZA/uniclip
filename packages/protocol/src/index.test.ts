@@ -6,6 +6,9 @@ import {
   ServerFrameSchema,
   ULID_REGEX,
   MAX_FRAME_BYTES,
+  PROTOCOL_VERSION,
+  CHUNK_BYTES,
+  MAX_FILE_BYTES,
 } from "./index";
 
 describe("ULID_REGEX", () => {
@@ -94,6 +97,12 @@ describe("ServerFrameSchema", () => {
       }),
     ).toThrow();
   });
+  it("defaults protocolVersion to 1 when absent", () => {
+    const f = ServerFrameSchema.parse({
+      type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false,
+    });
+    expect((f as { protocolVersion: number }).protocolVersion).toBe(1);
+  });
 });
 
 describe("MAX_FRAME_BYTES", () => {
@@ -135,5 +144,41 @@ describe("ClientFrameSchema", () => {
   });
   it("rejects an unknown frame type", () => {
     expect(() => ClientFrameSchema.parse({ type: "nope", msgId: "x" })).toThrow();
+  });
+});
+
+describe("file-transfer frames", () => {
+  const fileId = "01HF000000000000000000000A"; // 26-char valid ULID shape
+
+  it("accepts a file-offer", () => {
+    expect(
+      ClientFrameSchema.parse({
+        type: "file-offer", fileId, name: "a.png", mime: "image/png",
+        size: 1234, chunkCount: 1, hash: "a".repeat(64), inline: true,
+      }),
+    ).toBeDefined();
+  });
+
+  it("rejects a file-offer with a bad hash", () => {
+    expect(() =>
+      ClientFrameSchema.parse({
+        type: "file-offer", fileId, name: "a.png", mime: "image/png",
+        size: 1, chunkCount: 1, hash: "xyz", inline: false,
+      }),
+    ).toThrow();
+  });
+
+  it("accepts file-accept / file-chunk / file-ack / file-complete / file-cancel", () => {
+    expect(ClientFrameSchema.parse({ type: "file-accept", fileId })).toBeDefined();
+    expect(ClientFrameSchema.parse({ type: "file-chunk", fileId, index: 0, isFinal: true, iv: "AAAA", ciphertext: "QUFB" })).toBeDefined();
+    expect(ClientFrameSchema.parse({ type: "file-ack", fileId, upTo: 0 })).toBeDefined();
+    expect(ClientFrameSchema.parse({ type: "file-complete", fileId })).toBeDefined();
+    expect(ClientFrameSchema.parse({ type: "file-cancel", fileId, reason: "user" })).toBeDefined();
+  });
+
+  it("exposes transfer constants", () => {
+    expect(PROTOCOL_VERSION).toBe(1);
+    expect(CHUNK_BYTES).toBe(32 * 1024);
+    expect(MAX_FILE_BYTES).toBe(100 * 1024 * 1024);
   });
 });

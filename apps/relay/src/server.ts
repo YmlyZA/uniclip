@@ -21,11 +21,16 @@ const app = buildApp({
   metrics,
   ipLimiter,
 });
-const { websocket, fetch, frameLimiter } = attachWebSocket(app, store, metrics);
+const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(
+  app,
+  store,
+  metrics,
+);
 
 setInterval(() => store.gc(), 60_000);
 setInterval(() => {
   frameLimiter.sweep();
+  chunkLimiter.sweep();
   ipLimiter.inner.sweep();
 }, 60_000);
 

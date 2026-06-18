@@ -30,6 +30,18 @@ class MockWebSocket {
   }
 }
 
+// Node's vitest environment has no DOM `CloseEvent`; the harness's close()
+// constructs one. Polyfill a minimal shim so disconnect() paths can run.
+if (typeof (globalThis as any).CloseEvent === "undefined") {
+  (globalThis as any).CloseEvent = class CloseEvent extends Event {
+    code: number;
+    constructor(type: string, init?: { code?: number }) {
+      super(type);
+      this.code = init?.code ?? 0;
+    }
+  };
+}
+
 beforeEach(() => {
   MockWebSocket.instances = [];
   (globalThis as any).WebSocket = MockWebSocket;
@@ -388,5 +400,74 @@ describe("UniclipClient", () => {
     await waitFor(() => errCode !== "");
     expect(errCode).toBe("DECRYPT_FAILED");
     expect(clips).toEqual([]);
+  });
+
+  it("sendFile writes a file-offer frame through the socket", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    await client.sendFile({ name: "a.txt", mime: "text/plain", bytes: new TextEncoder().encode("hello") });
+    expect(ws.sent.some((s) => JSON.parse(s).type === "file-offer")).toBe(true);
+  });
+
+  it("routes an incoming file-offer to a file-offer event", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    let offered = "";
+    client.on("file-offer", (o: { fileId: string }) => (offered = o.fileId));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false });
+    await waitFor(() => offered !== "");
+    expect(offered).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+  });
+
+  it("aborts in-progress transfers on disconnect", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errs: string[] = [];
+    client.on("file-error", (e: { code: string }) => errs.push(e.code));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    client.on("file-offer", (o: { fileId: string }) => client.acceptFile(o.fileId));
+    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept"));
+    client.disconnect();
+    expect(errs).toContain("DISCONNECTED");
+  });
+
+  it("aborts in-progress transfers when the socket drops (transient close, not disconnect)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errs: string[] = [];
+    client.on("file-error", (e: { code: string }) => errs.push(e.code));
+    client.on("file-offer", (o: { fileId: string }) => client.acceptFile(o.fileId));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept")); // accept registered an incoming transfer
+
+    // Transient drop (NOT disconnect): onclose → handleClose → abortAll, then a
+    // reconnect is scheduled. Use fake timers so that reconnect timer can't leak.
+    vi.useFakeTimers();
+    ws.close(); // transient close path → handleClose → abortAll
+    expect(errs).toContain("DISCONNECTED");
+
+    client.disconnect(); // dispose so the next openSocket is a no-op path
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 });

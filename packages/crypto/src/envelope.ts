@@ -49,6 +49,46 @@ export async function decrypt(input: DecryptInput): Promise<string> {
   return decoder.decode(plain);
 }
 
+export interface EncryptBytesInput {
+  key: CryptoKey;
+  data: Uint8Array<ArrayBuffer>;
+  /** Associated data — bound into the GCM auth tag. */
+  aad: string;
+}
+
+export async function encryptBytes(input: EncryptBytesInput): Promise<Envelope> {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: encoder.encode(input.aad) },
+    input.key,
+    input.data,
+  );
+  return { iv: iv.buffer, ciphertext };
+}
+
+export interface DecryptBytesInput {
+  key: CryptoKey;
+  iv: BufferSource;
+  ciphertext: BufferSource;
+  aad: string;
+}
+
+export async function decryptBytes(input: DecryptBytesInput): Promise<Uint8Array> {
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: input.iv, additionalData: encoder.encode(input.aad) },
+    input.key,
+    input.ciphertext,
+  );
+  return new Uint8Array(plain);
+}
+
+export async function sha256Hex(data: Uint8Array<ArrayBuffer>): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+  let s = "";
+  for (const b of h) s += b.toString(16).padStart(2, "0");
+  return s;
+}
+
 /** Helpers to round-trip envelopes through JSON (base64). */
 export function toBase64(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
