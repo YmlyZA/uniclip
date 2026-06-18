@@ -1,5 +1,15 @@
-import { type ClientFrame, type ServerFrame, ACK_INTERVAL } from "@uniclip/protocol";
-import { decryptBytes, sha256Hex, fromBase64 } from "@uniclip/crypto";
+import { ulid } from "ulid";
+import {
+  type ClientFrame,
+  type ServerFrame,
+  ACK_INTERVAL,
+  CHUNK_BYTES,
+  INLINE_IMAGE_MAX,
+  MAX_FILE_BYTES,
+  CREDIT_WINDOW,
+  STALL_TIMEOUT_MS,
+} from "@uniclip/protocol";
+import { encryptBytes, decryptBytes, sha256Hex, toBase64, fromBase64 } from "@uniclip/crypto";
 
 export type FileClientEvent =
   | { kind: "file-offer"; fileId: string; name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean }
@@ -61,7 +71,9 @@ export class FileTransferManager {
       case "file-chunk": return this.onChunk(frame);
       case "file-complete": return this.onComplete(frame.fileId);
       case "file-cancel": return this.onCancel(frame.fileId, frame.reason);
-      // file-accept / file-ack are sender-side (added in Task 5).
+      case "file-accept": return this.onAccept(frame.fileId);
+      case "file-ack": return this.onAck(frame.fileId, frame.upTo);
+      case "file-decline": return; // another peer declined; best-effort, ignore
       default: return;
     }
   }
@@ -129,6 +141,8 @@ export class FileTransferManager {
   }
 
   private onCancel(fileId: string, reason: string): void {
+    const t = this.outgoing.get(fileId);
+    if (t?.stall) clearTimeout(t.stall);
     const had = this.incoming.delete(fileId) || this.outgoing.delete(fileId);
     if (had) this.deps.emit({ kind: "file-cancel", fileId, reason });
   }
@@ -139,5 +153,100 @@ export class FileTransferManager {
     this.incoming.delete(fileId);
     this.outgoing.delete(fileId);
     this.deps.emit({ kind: "file-error", fileId, code, message });
+  }
+
+  // ── Sender API ───────────────────────────────────────────────────────────
+  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<void> {
+    if (file.bytes.length > MAX_FILE_BYTES) {
+      this.deps.emit({ kind: "file-error", fileId: "", code: "TOO_LARGE", message: "file exceeds the size limit" });
+      return;
+    }
+    const key = this.deps.getKey();
+    if (!key) {
+      this.deps.emit({ kind: "file-error", fileId: "", code: "NO_KEY", message: "no room key" });
+      return;
+    }
+    const fileId = ulid();
+    const chunkCount = Math.max(1, Math.ceil(file.bytes.length / CHUNK_BYTES));
+    const hash = await sha256Hex(file.bytes as Uint8Array<ArrayBuffer>);
+    const inline = file.mime.startsWith("image/") && file.bytes.length <= INLINE_IMAGE_MAX;
+    this.outgoing.set(fileId, {
+      fileId, bytes: file.bytes, name: file.name, mime: file.mime,
+      chunkCount, nextChunk: 0, ackedUpTo: -1, started: false, pumping: false, stall: null,
+    });
+    const ok = this.deps.send({
+      type: "file-offer", fileId, name: file.name, mime: file.mime,
+      size: file.bytes.length, chunkCount, hash, inline,
+    });
+    if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return; }
+    this.armStall(fileId);
+  }
+
+  cancelFile(fileId: string): void {
+    const t = this.outgoing.get(fileId);
+    if (!t) return;
+    if (t.stall) clearTimeout(t.stall);
+    this.outgoing.delete(fileId);
+    this.deps.send({ type: "file-cancel", fileId, reason: "sender_cancelled" });
+    this.deps.emit({ kind: "file-cancel", fileId, reason: "sender_cancelled" });
+  }
+
+  private onAccept(fileId: string): Promise<void> {
+    const t = this.outgoing.get(fileId);
+    if (!t || t.started) return Promise.resolve(); // start on the FIRST accept
+    t.started = true;
+    return this.pump(fileId);
+  }
+
+  private onAck(fileId: string, upTo: number): Promise<void> {
+    const t = this.outgoing.get(fileId);
+    if (!t) return Promise.resolve();
+    if (upTo > t.ackedUpTo) t.ackedUpTo = upTo; // pace to the fastest acker
+    this.armStall(fileId); // progress resets the stall clock
+    return this.pump(fileId);
+  }
+
+  private armStall(fileId: string): void {
+    const t = this.outgoing.get(fileId);
+    if (!t) return;
+    if (t.stall) clearTimeout(t.stall);
+    t.stall = setTimeout(() => {
+      this.deps.send({ type: "file-cancel", fileId, reason: "stalled" });
+      this.fail(fileId, "STALLED", "no acknowledgement within the stall timeout");
+    }, STALL_TIMEOUT_MS);
+  }
+
+  private async pump(fileId: string): Promise<void> {
+    const t = this.outgoing.get(fileId);
+    if (!t || t.pumping || !t.started) return;
+    const key = this.deps.getKey();
+    if (!key) return;
+    t.pumping = true;
+    try {
+      while (t.nextChunk < t.chunkCount && t.nextChunk - t.ackedUpTo - 1 < CREDIT_WINDOW) {
+        const i = t.nextChunk;
+        const isFinal = i === t.chunkCount - 1;
+        const env = await encryptBytes({
+          key,
+          data: t.bytes.subarray(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES) as Uint8Array<ArrayBuffer>,
+          aad: `${this.deps.routingId}:${fileId}:${i}:${isFinal}`,
+        });
+        if (!this.outgoing.has(fileId)) return; // cancelled/failed during the await
+        const ok = this.deps.send({
+          type: "file-chunk", fileId, index: i, isFinal,
+          iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext),
+        });
+        if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return; }
+        t.nextChunk++;
+        this.deps.emit({ kind: "file-progress", fileId, dir: "send", sent: t.nextChunk, total: t.chunkCount });
+      }
+    } finally {
+      t.pumping = false;
+    }
+    if (t.nextChunk >= t.chunkCount && t.ackedUpTo >= t.chunkCount - 1) {
+      this.deps.send({ type: "file-complete", fileId });
+      if (t.stall) clearTimeout(t.stall);
+      this.outgoing.delete(fileId);
+    }
   }
 }
