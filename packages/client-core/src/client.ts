@@ -4,6 +4,7 @@ import { encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/cryp
 import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
 import { deriveRoomKey } from "./room-key";
+import { FileTransferManager, type FileClientEvent } from "./file-transfer";
 
 const MAX_QUEUE = 100;
 
@@ -16,7 +17,8 @@ export type ClientEvent =
   | { kind: "peer"; count: number }
   | { kind: "room"; backfill: boolean; ephemeral: boolean }
   | { kind: "error"; code: string; message: string }
-  | { kind: "sent"; msgId: string };
+  | { kind: "sent"; msgId: string }
+  | FileClientEvent;
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
 // backfilled clips sort by when they were sent, not when they were received.
@@ -28,6 +30,11 @@ export interface EventHandlers {
   room: (info: { backfill: boolean; ephemeral: boolean }) => void;
   error: (err: { code: string; message: string }) => void;
   sent: (msgId: string) => void;
+  "file-offer": (o: { fileId: string; name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean }) => void;
+  "file-progress": (p: { fileId: string; dir: "send" | "recv"; sent: number; total: number }) => void;
+  "file-received": (r: { fileId: string; blob: Blob; name: string; mime: string }) => void;
+  "file-error": (e: { fileId: string; code: string; message: string }) => void;
+  "file-cancel": (c: { fileId: string; reason: string }) => void;
 }
 
 export interface UniclipClientOptions {
@@ -47,12 +54,25 @@ export class UniclipClient {
   private disposed = false;
   private decryptedOk = false;
   private decryptWarned = false;
+  private transfers!: FileTransferManager;
 
   constructor(opts: UniclipClientOptions) {
     const parsed = parseRoomUrl(opts.roomUrl);
     if (!parsed) throw new Error(`invalid room URL: ${opts.roomUrl}`);
     this.room = parsed;
     this.relayBase = opts.relayBase.replace(/\/$/, "");
+    this.transfers = new FileTransferManager({
+      routingId: this.room.routingId,
+      getKey: () => this.key,
+      send: (frame) => {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify(frame));
+          return true;
+        }
+        return false; // transfers are live-only; never queued
+      },
+      emit: (evt) => this.emit(evt),
+    });
   }
 
   on<K extends keyof EventHandlers>(kind: K, cb: EventHandlers[K]): void {
@@ -76,6 +96,11 @@ export class UniclipClient {
         case "room": (cb as EventHandlers["room"])({ backfill: evt.backfill, ephemeral: evt.ephemeral }); break;
         case "error": (cb as EventHandlers["error"])({ code: evt.code, message: evt.message }); break;
         case "sent": (cb as EventHandlers["sent"])(evt.msgId); break;
+        case "file-offer": (cb as EventHandlers["file-offer"])(evt); break;
+        case "file-progress": (cb as EventHandlers["file-progress"])(evt); break;
+        case "file-received": (cb as EventHandlers["file-received"])(evt); break;
+        case "file-error": (cb as EventHandlers["file-error"])(evt); break;
+        case "file-cancel": (cb as EventHandlers["file-cancel"])(evt); break;
       }
     }
   }
@@ -189,6 +214,15 @@ export class UniclipClient {
       case "delete":
         this.emit({ kind: "delete", msgId: frame.msgId });
         return;
+      case "file-offer":
+      case "file-accept":
+      case "file-decline":
+      case "file-chunk":
+      case "file-ack":
+      case "file-complete":
+      case "file-cancel":
+        await this.transfers.handle(frame);
+        return;
       case "error":
         this.emit({ kind: "error", code: frame.code, message: frame.message });
         return;
@@ -242,8 +276,16 @@ export class UniclipClient {
     this.enqueue(payload);
   }
 
+  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<void> {
+    return this.transfers.sendFile(file);
+  }
+  acceptFile(fileId: string): void { this.transfers.acceptFile(fileId); }
+  declineFile(fileId: string): void { this.transfers.declineFile(fileId); }
+  cancelFile(fileId: string): void { this.transfers.cancelFile(fileId); }
+
   disconnect(): void {
     this.disposed = true;
+    this.transfers.abortAll("disconnected");
     this.ws?.close();
     this.ws = null;
   }
