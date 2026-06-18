@@ -138,24 +138,28 @@
       toast(`Too large to send (max ${MAX_FILE_MB} MB).`, "warn");
       return;
     }
-    const bytes = await readFileBytes(file);
-    const res = await client.sendFile({
-      name: file.name,
-      mime: file.type || "application/octet-stream",
-      bytes,
-    });
-    if (!res) return; // engine early-rejected; file-error already toasted
-    transfers = addOutgoing(
-      transfers,
-      { fileId: res.fileId, name: file.name, mime: file.type || "application/octet-stream", size: file.size, total: res.chunkCount },
-      Date.now(),
-    );
+    try {
+      const bytes = await readFileBytes(file);
+      const res = await client.sendFile({
+        name: file.name,
+        mime: file.type || "application/octet-stream",
+        bytes,
+      });
+      if (!res) return; // engine early-rejected; file-error already toasted
+      transfers = addOutgoing(
+        transfers,
+        { fileId: res.fileId, name: file.name, mime: file.type || "application/octet-stream", size: file.size, total: res.chunkCount },
+        Date.now(),
+      );
+    } catch {
+      toast("Couldn't send that file", "warn");
+    }
   }
 
   function onPaste(e: ClipboardEvent) {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const it of items) {
+    const clipItems = e.clipboardData?.items;
+    if (!clipItems) return;
+    for (const it of clipItems) {
       if (it.kind === "file" && it.type.startsWith("image/")) {
         const file = it.getAsFile();
         if (file) {
@@ -196,8 +200,16 @@
     transfers = removeTransfer(transfers, fileId);
   }
   function cancelTransfer(fileId: string) {
-    client?.cancelFile(fileId);
-    // engine emits file-cancel → applyCancel marks it cancelled
+    const t = transfers.find((x) => x.fileId === fileId);
+    if (t?.dir === "recv") {
+      // The engine's cancelFile only handles sends. For an incoming transfer,
+      // declineFile drops the engine's incoming entry + notifies the peer;
+      // mark it cancelled locally (no file-cancel comes back to us).
+      client?.declineFile(fileId);
+      transfers = applyCancel(transfers, { fileId });
+    } else {
+      client?.cancelFile(fileId); // sender: engine emits file-cancel → applyCancel
+    }
   }
 
   async function copy(text: string) {
