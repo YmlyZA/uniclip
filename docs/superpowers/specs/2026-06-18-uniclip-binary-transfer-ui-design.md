@@ -14,12 +14,12 @@
 4. Keep the existing text-clip experience untouched; present files/images in the **same timeline** as clips.
 
 ### Non-goals / preserved invariants
-- **No engine/protocol/relay/crypto changes** (other than possibly lowering `MAX_FILE_BYTES`). The UI only consumes `client.sendFile/acceptFile/declineFile/cancelFile` and the `file-*` events.
+- **No engine behavior changes**, with two minimal, backward-compatible exceptions: (1) `client.sendFile` (and `FileTransferManager.sendFile`) returns its minted `{ fileId, chunkCount }` (or `null` if it early-rejects) so the UI can correlate the optimistic "Sending…" item with the `file-progress(send)` events; (2) possibly lowering `MAX_FILE_BYTES`. No protocol/relay/crypto changes. The UI consumes `client.sendFile/acceptFile/declineFile/cancelFile` and the `file-*` events.
 - **File/image transfers are never persisted** (download-and-forget; Blobs can't go to localStorage; binary is live-only). They live only in session memory and vanish on reload. Text clips persist exactly as today.
 - No resume/retry, no transfer history, no WebRTC. (Engine non-goals carry over.)
 
 ## 2. Engine surface consumed (already exists)
-- Methods: `client.sendFile({ name, mime, bytes: Uint8Array }): Promise<void>`, `acceptFile(fileId)`, `declineFile(fileId)`, `cancelFile(fileId)`.
+- Methods: `client.sendFile({ name, mime, bytes: Uint8Array }): Promise<{ fileId, chunkCount } | null>` (returns the minted ids for UI correlation; `null` on early-reject), `acceptFile(fileId)`, `declineFile(fileId)`, `cancelFile(fileId)`.
 - Events: `file-offer({fileId,name,mime,size,chunkCount,hash,inline})`, `file-progress({fileId,dir:"send"|"recv",sent,total})`, `file-received({fileId,blob,name,mime})`, `file-error({fileId,code,message})`, `file-cancel({fileId,reason})`.
 - Behavior to rely on: an `inline` offer is **auto-accepted by the engine** (the UI must NOT show an Accept card for it); the engine never emits an explicit "send complete" — the UI infers a send is done when `file-progress(send)` reaches `sent === total`.
 
