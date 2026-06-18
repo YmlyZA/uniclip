@@ -5,14 +5,23 @@ import {
   CLOSE_CODES,
   ClientFrameSchema,
   MAX_FRAME_BYTES,
+  PROTOCOL_VERSION,
   type ServerFrame,
 } from "@uniclip/protocol";
 import type { RoomStore } from "./rooms";
 import { SlidingWindowLimiter } from "./rate-limit";
 import type { Metrics } from "./metrics";
 
+// Per-socket fan-out backpressure ceiling. A socket buffered beyond this is
+// skipped for the current frame (memory backstop; see the engine spec §4).
+const BUFFERED_AMOUNT_MAX = 8 * 1024 * 1024;
+
 export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) {
   const frameLimiter = new SlidingWindowLimiter(20, 10_000);
+  // file-* frames are bursty by nature; they get a far higher budget so a
+  // transfer doesn't trip the clip/delete limiter. Flow control is the real
+  // pace governor; this is only a DoS ceiling.
+  const chunkLimiter = new SlidingWindowLimiter(2000, 10_000);
   const socketKeys = new WeakMap<ServerWebSocket<{ roomId: string }>, string>();
 
   app.get(
@@ -39,6 +48,7 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             serverTime: Date.now(),
             backfill: room.backfillEnabled,
             ephemeral: room.ephemeral,
+            protocolVersion: PROTOCOL_VERSION,
           });
           // Backfill recent clips to this newcomer only — existing peers already
           // have them, and the client's ReplaySet dedups by msgId.
@@ -100,7 +110,8 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             key = crypto.randomUUID();
             socketKeys.set(raw, key);
           }
-          if (!frameLimiter.allow(key)) {
+          const limiter = result.data.type.startsWith("file-") ? chunkLimiter : frameLimiter;
+          if (!limiter.allow(key)) {
             metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
             raw.send(
               JSON.stringify({
@@ -121,12 +132,13 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           if (result.data.type === "clip") {
             // Buffer for late joiners (no-op unless Mode A + backfill enabled).
             store.pushRecent(room.id, result.data);
-          } else {
-            // delete: drop it from the ring so a late joiner won't get it back,
-            // and remember it so a peer offline now can reconcile on (re)join.
+          } else if (result.data.type === "delete") {
+            // Drop from the ring and remember the tombstone for late reconcile.
             store.removeRecent(room.id, result.data.msgId);
             store.addTombstone(room.id, result.data.msgId);
           }
+          // file-* frames are forwarded only (already broadcast above) — never
+          // buffered, tombstoned, or persisted. Binary stays out of the relay.
         },
       };
     }),
@@ -148,12 +160,16 @@ function broadcast(
   const payload = JSON.stringify(frame);
   for (const s of sockets) {
     if (s === exclude) continue;
+    const sock = s as ServerWebSocket<unknown> & { getBufferedAmount?: () => number };
+    // Memory backstop: skip a socket whose send buffer is already large. Under
+    // correct sender pacing this never triggers; it only fires for a stuck
+    // receiver, which then fails its transfer's hash check (others unaffected).
+    if (sock.getBufferedAmount && sock.getBufferedAmount() > BUFFERED_AMOUNT_MAX) continue;
     try {
-      (s as ServerWebSocket<unknown>).send(payload);
+      sock.send(payload);
       onSent?.();
     } catch {
-      // A failing socket must not block delivery to the rest of the room;
-      // its own onClose will reap it from the set.
+      // A failing socket must not block delivery to the rest of the room.
     }
   }
 }
