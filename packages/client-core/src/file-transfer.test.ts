@@ -143,6 +143,24 @@ describe("FileTransferManager sender", () => {
     expect(after2).toBeGreaterThan(after1);
   });
 
+  it("paces to the fastest acker: a lower subsequent ack does not shrink the window", async () => {
+    const key = await genKey();
+    const { mgr, sent } = makeManager(key);
+    const data = randBytes(100 * 32 * 1024); // 100 chunks
+    await mgr.sendFile({ name: "f.bin", mime: "application/octet-stream", bytes: data });
+    const fileId = (sent.find((f) => f.type === "file-offer") as { fileId: string }).fileId;
+    await mgr.handle({ type: "file-accept", fileId } as ServerFrame);
+    expect(sent.filter((f) => f.type === "file-chunk").length).toBe(32); // CREDIT_WINDOW
+
+    await mgr.handle({ type: "file-ack", fileId, upTo: 20 } as ServerFrame); // fast acker
+    const afterHigh = sent.filter((f) => f.type === "file-chunk").length;
+    expect(afterHigh).toBeGreaterThan(32);
+
+    await mgr.handle({ type: "file-ack", fileId, upTo: 10 } as ServerFrame); // slower/stale ack
+    const afterLow = sent.filter((f) => f.type === "file-chunk").length;
+    expect(afterLow).toBe(afterHigh); // lower upTo ignored — window did not shrink or advance
+  });
+
   it("round-trips sender→receiver: assembled bytes equal the input", async () => {
     const key = await genKey();
     const aEvents: FileClientEvent[] = [];

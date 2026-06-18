@@ -445,4 +445,29 @@ describe("UniclipClient", () => {
     client.disconnect();
     expect(errs).toContain("DISCONNECTED");
   });
+
+  it("aborts in-progress transfers when the socket drops (transient close, not disconnect)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errs: string[] = [];
+    client.on("file-error", (e: { code: string }) => errs.push(e.code));
+    client.on("file-offer", (o: { fileId: string }) => client.acceptFile(o.fileId));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept")); // accept registered an incoming transfer
+
+    // Transient drop (NOT disconnect): onclose → handleClose → abortAll, then a
+    // reconnect is scheduled. Use fake timers so that reconnect timer can't leak.
+    vi.useFakeTimers();
+    ws.close(); // transient close path → handleClose → abortAll
+    expect(errs).toContain("DISCONNECTED");
+
+    client.disconnect(); // dispose so the next openSocket is a no-op path
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
 });

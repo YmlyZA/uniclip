@@ -126,6 +126,11 @@ export class UniclipClient {
   }
 
   private handleClose(): void {
+    // File transfers are live-only — they cannot survive a socket drop. Abort
+    // any in-flight transfer on EVERY close (including a transient drop during
+    // auto-reconnect), not just explicit disconnect(). Otherwise a receiver's
+    // `incoming` entry leaks (the receiver has no stall timer; only the sender does).
+    this.transfers.abortAll("disconnected");
     this.ws = null;
     if (this.disposed) {
       this.emit({ kind: "status", value: "disconnected" });
