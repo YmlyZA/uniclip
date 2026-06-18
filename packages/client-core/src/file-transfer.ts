@@ -156,15 +156,15 @@ export class FileTransferManager {
   }
 
   // ── Sender API ───────────────────────────────────────────────────────────
-  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<void> {
+  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<{ fileId: string; chunkCount: number } | null> {
     if (file.bytes.length > MAX_FILE_BYTES) {
       this.deps.emit({ kind: "file-error", fileId: "", code: "TOO_LARGE", message: "file exceeds the size limit" });
-      return;
+      return null;
     }
     const key = this.deps.getKey();
     if (!key) {
       this.deps.emit({ kind: "file-error", fileId: "", code: "NO_KEY", message: "no room key" });
-      return;
+      return null;
     }
     const fileId = ulid();
     const chunkCount = Math.max(1, Math.ceil(file.bytes.length / CHUNK_BYTES));
@@ -178,8 +178,9 @@ export class FileTransferManager {
       type: "file-offer", fileId, name: file.name, mime: file.mime,
       size: file.bytes.length, chunkCount, hash, inline,
     });
-    if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return; }
+    if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return null; }
     this.armStall(fileId);
+    return { fileId, chunkCount };
   }
 
   cancelFile(fileId: string): void {

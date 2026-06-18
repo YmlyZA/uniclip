@@ -226,4 +226,15 @@ describe("FileTransferManager sender", () => {
     expect(events.some((e) => e.kind === "file-error" && e.code === "STALLED")).toBe(false);
     vi.useRealTimers();
   });
+
+  it("sendFile returns the minted {fileId, chunkCount}, and null when oversize", async () => {
+    const key = await genKey();
+    const { mgr } = makeManager(key);
+    const res = await mgr.sendFile({ name: "f.txt", mime: "text/plain", bytes: new TextEncoder().encode("hi") });
+    expect(res).not.toBeNull();
+    expect(res!.fileId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(res!.chunkCount).toBe(1);
+    const big = await mgr.sendFile({ name: "b", mime: "x", bytes: { length: 100 * 1024 * 1024 + 1 } as unknown as Uint8Array });
+    expect(big).toBeNull();
+  });
 });

@@ -281,7 +281,7 @@ export class UniclipClient {
     this.enqueue(payload);
   }
 
-  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<void> {
+  async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<{ fileId: string; chunkCount: number } | null> {
     return this.transfers.sendFile(file);
   }
   acceptFile(fileId: string): void { this.transfers.acceptFile(fileId); }
