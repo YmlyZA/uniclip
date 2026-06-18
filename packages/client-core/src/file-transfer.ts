@@ -179,7 +179,9 @@ export class FileTransferManager {
       size: file.bytes.length, chunkCount, hash, inline,
     });
     if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return null; }
-    this.armStall(fileId);
+    // The stall timer is NOT armed here: an offer can sit waiting to be accepted
+    // (a non-inline file, or a peer that's slow to tap Accept) without that being
+    // a "stall". The clock starts once streaming begins, in onAccept.
     return { fileId, chunkCount };
   }
 
@@ -196,6 +198,7 @@ export class FileTransferManager {
     const t = this.outgoing.get(fileId);
     if (!t || t.started) return Promise.resolve(); // start on the FIRST accept
     t.started = true;
+    this.armStall(fileId); // the stall clock starts when streaming begins
     return this.pump(fileId);
   }
 

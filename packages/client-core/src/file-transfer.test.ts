@@ -202,6 +202,18 @@ describe("FileTransferManager sender", () => {
     vi.useRealTimers();
   });
 
+  it("does NOT stall while only waiting to be accepted (stall starts at first accept)", async () => {
+    vi.useFakeTimers();
+    const key = await genKey();
+    const { mgr, events } = makeManager(key);
+    await mgr.sendFile({ name: "f.bin", mime: "application/octet-stream", bytes: randBytes(40 * 32 * 1024) });
+    // No accept arrives. The sender must not self-destruct just because the peer
+    // hasn't accepted yet — the stall only guards an accepted, active stream.
+    await vi.advanceTimersByTimeAsync(30_000 + 10);
+    expect(events.some((e) => e.kind === "file-error" && e.code === "STALLED")).toBe(false);
+    vi.useRealTimers();
+  });
+
   it("cancelFile sends a file-cancel and emits one", async () => {
     const key = await genKey();
     const { mgr, sent, events } = makeManager(key);
