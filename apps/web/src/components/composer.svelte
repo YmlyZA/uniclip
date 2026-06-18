@@ -5,10 +5,20 @@
   import { MAX_TEXT_BYTES, textByteLength, withinLimit } from "../lib/limits";
   import ComposerModal from "./composer-modal.svelte";
 
-  let { onSend }: { onSend: (text: string) => void } = $props();
+  let { onSend, onSendFile }: { onSend: (text: string) => void; onSendFile?: (file: File) => void } = $props();
   let text = $state("");
   let area = $state<HTMLTextAreaElement>();
   let expanded = $state(false);
+  let fileInput = $state<HTMLInputElement>();
+  function pickFile() {
+    fileInput?.click();
+  }
+  function onFileChange(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) onSendFile?.(file);
+    input.value = ""; // allow re-picking the same file
+  }
 
   let bytes = $derived(textByteLength(text));
   let over = $derived(bytes > MAX_TEXT_BYTES);
@@ -75,6 +85,21 @@
       placeholder="Type or paste — Enter to send"
       class="h-9 flex-1 resize-none overflow-hidden whitespace-nowrap bg-transparent py-1.5 font-mono text-sm text-text placeholder:font-sans placeholder:text-faint focus:outline-none"
     ></textarea>
+
+    {#if onSendFile}
+      <input bind:this={fileInput} type="file" class="hidden" onchange={onFileChange} />
+      <button
+        type="button"
+        onclick={pickFile}
+        class="grid h-9 w-9 shrink-0 place-items-center rounded-field text-muted transition hover:bg-surface-2 hover:text-text"
+        title="Attach a file"
+        aria-label="Attach a file"
+      >
+        <svg viewBox="0 0 24 24" fill="none" class="h-[18px] w-[18px]" aria-hidden="true">
+          <path d="M18 8.5l-7.8 7.8a2.5 2.5 0 0 1-3.5-3.5l8-8a4 4 0 0 1 5.7 5.7l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    {/if}
 
     <button
       type="button"

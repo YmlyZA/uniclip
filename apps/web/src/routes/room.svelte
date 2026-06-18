@@ -6,11 +6,17 @@
   import ItemsList from "../components/items-list.svelte";
   import ShareModal from "../components/share-modal.svelte";
   import Composer from "../components/composer.svelte";
+  import DropOverlay from "../components/drop-overlay.svelte";
   import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
   import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
   import { PersistedItems, EphemeralStore, type Item, type ItemStore } from "../lib/persist";
   import { EPHEMERAL_TTL_MS, ExpiryScheduler } from "../lib/ephemeral";
+  import {
+    addOutgoing, applyOffer, applyProgress, applyReceived, applyError,
+    applyCancel, removeTransfer, markTransferring, type TransferItem,
+  } from "../lib/transfers";
+  import { tooLarge, readFileBytes, MAX_FILE_MB } from "../lib/file-send";
   import { toast } from "../lib/toast";
 
   let { room }: { room: ParsedRoom } = $props();
@@ -27,6 +33,9 @@
 
   let client = $state<UniclipClient | null>(null);
   let items = $state<Item[]>([]);
+  let transfers = $state<TransferItem[]>([]);
+  let dragDepth = $state(0); // dragenter/leave fire on children; count to know when truly out
+  const dragging = $derived(dragDepth > 0);
   let peerCount = $state(1);
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
   let watching = $state(false);
@@ -76,6 +85,14 @@
       if (e.code === "DECRYPT_FAILED") keyError = true;
       else toast(`${e.code}: ${e.message}`, "warn");
     });
+    c.on("file-offer", (o) => { transfers = applyOffer(transfers, o, Date.now()); });
+    c.on("file-progress", (p) => { transfers = applyProgress(transfers, p); });
+    c.on("file-received", (r) => { transfers = applyReceived(transfers, r); });
+    c.on("file-error", (e) => {
+      transfers = applyError(transfers, e);
+      toast(`Transfer failed: ${e.code}`, "warn");
+    });
+    c.on("file-cancel", (cc) => { transfers = applyCancel(transfers, cc); });
     await c.connect();
 
     watcher.on(async (text) => {
@@ -112,6 +129,86 @@
       await addItem(text, ts, msgId, true, queued);
     } catch {
       toast("Send failed", "warn");
+    }
+  }
+
+  async function sendFile(file: File) {
+    if (!client) return;
+    if (tooLarge(file)) {
+      toast(`Too large to send (max ${MAX_FILE_MB} MB).`, "warn");
+      return;
+    }
+    try {
+      const bytes = await readFileBytes(file);
+      const res = await client.sendFile({
+        name: file.name,
+        mime: file.type || "application/octet-stream",
+        bytes,
+      });
+      if (!res) return; // engine early-rejected; file-error already toasted
+      transfers = addOutgoing(
+        transfers,
+        { fileId: res.fileId, name: file.name, mime: file.type || "application/octet-stream", size: file.size, total: res.chunkCount },
+        Date.now(),
+      );
+    } catch {
+      toast("Couldn't send that file", "warn");
+    }
+  }
+
+  function onPaste(e: ClipboardEvent) {
+    const clipItems = e.clipboardData?.items;
+    if (!clipItems) return;
+    for (const it of clipItems) {
+      if (it.kind === "file" && it.type.startsWith("image/")) {
+        const file = it.getAsFile();
+        if (file) {
+          e.preventDefault(); // image paste → send; don't also paste into a field
+          void sendFile(file);
+          return;
+        }
+      }
+    }
+    // no image → let normal text paste proceed
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (e.dataTransfer?.types.includes("Files")) {
+      e.preventDefault();
+      dragDepth += 1;
+    }
+  }
+  function onDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+  }
+  function onDragLeave() {
+    if (dragDepth > 0) dragDepth -= 1;
+  }
+  function onDrop(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepth = 0;
+    for (const file of Array.from(e.dataTransfer.files)) void sendFile(file);
+  }
+
+  function acceptTransfer(fileId: string) {
+    client?.acceptFile(fileId);
+    transfers = markTransferring(transfers, fileId);
+  }
+  function declineTransfer(fileId: string) {
+    client?.declineFile(fileId);
+    transfers = removeTransfer(transfers, fileId);
+  }
+  function cancelTransfer(fileId: string) {
+    const t = transfers.find((x) => x.fileId === fileId);
+    if (t?.dir === "recv") {
+      // The engine's cancelFile only handles sends. For an incoming transfer,
+      // declineFile drops the engine's incoming entry + notifies the peer;
+      // mark it cancelled locally (no file-cancel comes back to us).
+      client?.declineFile(fileId);
+      transfers = applyCancel(transfers, { fileId });
+    } else {
+      client?.cancelFile(fileId); // sender: engine emits file-cancel → applyCancel
     }
   }
 
@@ -157,7 +254,17 @@
   }
 </script>
 
-<div class="flex min-h-[100dvh] flex-col">
+<svelte:window onpaste={onPaste} />
+
+<!-- Drag-and-drop is a pointer enhancement; the attach button is the keyboard-accessible path. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="flex min-h-[100dvh] flex-col"
+  ondragenter={onDragEnter}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
+>
   <Header
     roomId={room.routingId}
     mode={room.mode}
@@ -191,7 +298,7 @@
     <aside class="hidden w-72 shrink-0 lg:block">
       <div class="sticky top-24 space-y-3">
         <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-        <Composer onSend={sendText} />
+        <Composer onSend={sendText} onSendFile={sendFile} />
 
         {#if backfillOn}
           <div class="flex items-start gap-2 rounded-field border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
@@ -217,7 +324,7 @@
 
     <!-- List -->
     <section class="min-w-0 flex-1 pb-44 lg:pb-0">
-      <ItemsList {items} syncing={watching} onCopy={copy} {onDelete} />
+      <ItemsList {items} {transfers} syncing={watching} onCopy={copy} {onDelete} onAccept={acceptTransfer} onDecline={declineTransfer} onCancelTransfer={cancelTransfer} />
     </section>
   </main>
 
@@ -227,7 +334,7 @@
   >
     <div class="mx-auto flex max-w-5xl flex-col gap-2">
       <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-      <Composer onSend={sendText} />
+      <Composer onSend={sendText} onSendFile={sendFile} />
     </div>
   </div>
 
@@ -236,4 +343,8 @@
   {/if}
 
   <Toaster />
+
+  {#if dragging}
+    <DropOverlay />
+  {/if}
 </div>
