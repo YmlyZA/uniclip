@@ -7,7 +7,7 @@ export const PROTOCOL_VERSION = 1;
 // Binary transfer (Phase 2 v0.2). CHUNK_BYTES is sized so a base64+JSON frame
 // stays under MAX_FRAME_BYTES; the rest are engine tunables.
 export const CHUNK_BYTES = 32 * 1024;
-export const INLINE_IMAGE_MAX = 256 * 1024;
+export const INLINE_IMAGE_MAX = 2 * 1024 * 1024;
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const CREDIT_WINDOW = 32;
 export const ACK_INTERVAL = 16;

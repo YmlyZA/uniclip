@@ -5,7 +5,17 @@
   import { MAX_TEXT_BYTES, textByteLength, withinLimit } from "../lib/limits";
   import ComposerModal from "./composer-modal.svelte";
 
-  let { onSend, onSendFile }: { onSend: (text: string) => void; onSendFile?: (file: File) => void } = $props();
+  let {
+    onSend,
+    onSendFile,
+    pendingFile = null,
+    clearPending,
+  }: {
+    onSend: (text: string) => void;
+    onSendFile?: (file: File) => void;
+    pendingFile?: File | null;
+    clearPending?: () => void;
+  } = $props();
   let text = $state("");
   let area = $state<HTMLTextAreaElement>();
   let expanded = $state(false);
@@ -39,15 +49,24 @@
   }
 
   function send() {
-    if (!text.trim()) return;
-    if (!withinLimit(text)) {
-      toast("Too large to send (max 32 KB). File transfer is coming.", "warn");
+    if (text.trim() && !withinLimit(text)) {
+      toast("Too large to send (max 32 KB).", "warn");
       return;
     }
-    onSend(text);
-    text = "";
+    if (pendingFile && onSendFile) {
+      onSendFile(pendingFile);
+      clearPending?.();
+    }
+    if (text.trim()) {
+      onSend(text);
+      text = "";
+    }
     expanded = false;
     area?.focus();
+  }
+
+  function humanSize(n: number): string {
+    return n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -63,6 +82,26 @@
 </script>
 
 <div class="rounded-card border border-border bg-surface">
+  {#if pendingFile}
+    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+      <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4 shrink-0 text-accent" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7" />
+        <circle cx="9" cy="9" r="1.6" stroke="currentColor" stroke-width="1.5" />
+        <path d="M5 16l4-4 3 3 3-4 4 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <span class="min-w-0 flex-1 truncate text-xs text-text">{pendingFile.name}</span>
+      <span class="shrink-0 text-[11px] text-faint">{humanSize(pendingFile.size)}</span>
+      <button
+        type="button"
+        onclick={() => clearPending?.()}
+        class="grid h-6 w-6 shrink-0 place-items-center rounded-field text-faint transition hover:bg-surface-2 hover:text-danger"
+        title="Remove"
+        aria-label="Remove staged file"
+      >
+        <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+      </button>
+    </div>
+  {/if}
   <div class="flex items-center gap-2 p-2">
     <button
       type="button"
@@ -116,7 +155,7 @@
     <button
       type="button"
       onclick={send}
-      disabled={!text.trim() || over}
+      disabled={(!text.trim() && !pendingFile) || over}
       class="grid h-9 w-9 shrink-0 place-items-center rounded-field bg-accent text-accent-fg transition hover:bg-accent-bright disabled:opacity-40"
       title="Send"
       aria-label="Send"
@@ -135,5 +174,5 @@
 </div>
 
 {#if expanded}
-  <ComposerModal bind:text {over} {bytes} onFill={fill} onSend={send} onClose={() => (expanded = false)} />
+  <ComposerModal bind:text {over} {bytes} {pendingFile} onFill={fill} onSend={send} onClearPending={() => clearPending?.()} onClose={() => (expanded = false)} />
 {/if}

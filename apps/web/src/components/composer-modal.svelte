@@ -3,17 +3,25 @@
     text = $bindable(""),
     over,
     bytes,
+    pendingFile = null,
     onFill,
     onSend,
+    onClearPending,
     onClose,
   }: {
     text: string;
     over: boolean;
     bytes: number;
+    pendingFile?: File | null;
     onFill: () => void;
     onSend: () => void;
+    onClearPending?: () => void;
     onClose: () => void;
   } = $props();
+
+  function humanSize(n: number): string {
+    return n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+  }
 
   let area = $state<HTMLTextAreaElement>();
   $effect(() => {
@@ -61,6 +69,27 @@
       </button>
     </div>
 
+    {#if pendingFile}
+      <div class="flex items-center gap-2 border-b border-border px-5 py-2.5">
+        <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4 shrink-0 text-accent" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7" />
+          <circle cx="9" cy="9" r="1.6" stroke="currentColor" stroke-width="1.5" />
+          <path d="M5 16l4-4 3 3 3-4 4 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="min-w-0 flex-1 truncate text-xs text-text">{pendingFile.name}</span>
+        <span class="shrink-0 text-[11px] text-faint">{humanSize(pendingFile.size)}</span>
+        <button
+          type="button"
+          onclick={() => onClearPending?.()}
+          class="grid h-6 w-6 shrink-0 place-items-center rounded-field text-faint transition hover:bg-surface-2 hover:text-danger"
+          title="Remove"
+          aria-label="Remove staged file"
+        >
+          <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+        </button>
+      </div>
+    {/if}
+
     <textarea
       bind:this={area}
       bind:value={text}
@@ -80,7 +109,7 @@
       <button
         type="button"
         onclick={onSend}
-        disabled={!text.trim() || over}
+        disabled={(!text.trim() && !pendingFile) || over}
         class="rounded-field bg-accent px-4 py-1.5 text-sm font-bold text-accent-fg transition hover:bg-accent-bright disabled:opacity-40"
       >
         Send
