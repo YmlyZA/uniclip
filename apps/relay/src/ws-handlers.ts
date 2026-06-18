@@ -144,14 +144,14 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
     }),
   );
 
-  return { websocket, fetch: app.fetch, frameLimiter };
+  return { websocket, fetch: app.fetch, frameLimiter, chunkLimiter };
 }
 
 function send(ws: ServerWebSocket<unknown>, frame: ServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-function broadcast(
+export function broadcast(
   sockets: Set<unknown>,
   exclude: ServerWebSocket<unknown>,
   frame: ServerFrame,

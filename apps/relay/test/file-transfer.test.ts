@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 import { RoomStore } from "../src/rooms";
-import { attachWebSocket } from "../src/ws-handlers";
+import { attachWebSocket, broadcast } from "../src/ws-handlers";
 import { ulid } from "ulid";
 
 let server: ReturnType<typeof Bun.serve> | null = null;
@@ -78,5 +78,19 @@ describe("relay file-* handling", () => {
     for (let i = 0; i < 25; i++) a.send(JSON.stringify({ type: "clip", msgId: ulid(), iv: "AAAA", ciphertext: "QUFB", ts: 0 }));
     await new Promise((r) => setTimeout(r, 150));
     expect(closeCode).toBe(4429);
+  });
+});
+
+describe("broadcast backpressure gate (spec §8)", () => {
+  it("skips a socket whose getBufferedAmount exceeds the ceiling", () => {
+    const sentNormal: string[] = [];
+    const sentBackpressured: string[] = [];
+    const normal = { send: (p: string) => sentNormal.push(p), getBufferedAmount: () => 0 };
+    const stuck = { send: (p: string) => sentBackpressured.push(p), getBufferedAmount: () => 9 * 1024 * 1024 };
+    const sockets = new Set<unknown>([normal, stuck]);
+    const frame = { type: "file-chunk", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", index: 0, isFinal: true, iv: "AAAA", ciphertext: "QUFB" } as any;
+    broadcast(sockets, {} as any, frame);
+    expect(sentNormal).toHaveLength(1); // delivered
+    expect(sentBackpressured).toHaveLength(0); // skipped (buffer > 8 MiB)
   });
 });
