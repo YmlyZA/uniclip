@@ -34,6 +34,7 @@
   let client = $state<UniclipClient | null>(null);
   let items = $state<Item[]>([]);
   let transfers = $state<TransferItem[]>([]);
+  let pendingFile = $state<File | null>(null); // staged in the composer until Send/Enter
   let dragDepth = $state(0); // dragenter/leave fire on children; count to know when truly out
   const dragging = $derived(dragDepth > 0);
   let peerCount = $state(1);
@@ -134,6 +135,10 @@
 
   async function sendFile(file: File) {
     if (!client) return;
+    if (peerCount <= 1) {
+      toast("No other device connected — open this room on another device first.", "warn");
+      return;
+    }
     if (tooLarge(file)) {
       toast(`Too large to send (max ${MAX_FILE_MB} MB).`, "warn");
       return;
@@ -163,8 +168,8 @@
       if (it.kind === "file" && it.type.startsWith("image/")) {
         const file = it.getAsFile();
         if (file) {
-          e.preventDefault(); // image paste → send; don't also paste into a field
-          void sendFile(file);
+          e.preventDefault(); // stage the image in the composer; Send/Enter sends it
+          pendingFile = file;
           return;
         }
       }
@@ -298,7 +303,7 @@
     <aside class="hidden w-72 shrink-0 lg:block">
       <div class="sticky top-24 space-y-3">
         <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-        <Composer onSend={sendText} onSendFile={sendFile} />
+        <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} />
 
         {#if backfillOn}
           <div class="flex items-start gap-2 rounded-field border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
@@ -334,7 +339,7 @@
   >
     <div class="mx-auto flex max-w-5xl flex-col gap-2">
       <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-      <Composer onSend={sendText} onSendFile={sendFile} />
+      <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} />
     </div>
   </div>
 
