@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { readClipboardText } from "../lib/clipboard";
+  import { readClipboardText, readClipboardImage } from "../lib/clipboard";
   import { toast } from "../lib/toast";
   import { MAX_TEXT_BYTES, textByteLength, withinLimit } from "../lib/limits";
   import ComposerModal from "./composer-modal.svelte";
@@ -10,11 +10,13 @@
     onSendFile,
     pendingFile = null,
     clearPending,
+    onStageFile,
   }: {
     onSend: (text: string) => void;
     onSendFile?: (file: File) => void;
     pendingFile?: File | null;
     clearPending?: () => void;
+    onStageFile?: (file: File) => void;
   } = $props();
   let text = $state("");
   let area = $state<HTMLTextAreaElement>();
@@ -42,6 +44,21 @@
   });
 
   async function fill() {
+    // Align the clipboard button with Ctrl/⌘+V: if the clipboard holds an
+    // image, stage it as a chip (the only image entry point on iOS); otherwise
+    // fall back to filling the textarea with clipboard text. Gated on onSendFile
+    // too: with no send path a staged chip would be a dead end, so we'd rather
+    // fall through to text than strand an unsendable image.
+    if (onStageFile && onSendFile) {
+      try {
+        const img = await readClipboardImage();
+        if (img) {
+          onStageFile(img);
+          area?.focus();
+          return;
+        }
+      } catch {}
+    }
     try {
       text = await readClipboardText();
       area?.focus();
