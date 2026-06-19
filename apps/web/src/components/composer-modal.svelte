@@ -44,7 +44,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   use:portal
-  class="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
+  class="scrim fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget) onClose();
@@ -120,3 +120,15 @@
     </div>
   </div>
 </div>
+
+<style>
+  /* Tailwind's bg-black/55 compiles to a color-mix() with no plain-color
+     fallback (transparent on Safari < 16.2), and backdrop-blur-sm omits the
+     -webkit- prefix Safari needs — so on Safari/iOS the scrim was see-through.
+     A plain rgba() + prefixed blur covers the page reliably everywhere. */
+  .scrim {
+    background-color: rgba(8, 10, 14, 0.82);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+</style>
