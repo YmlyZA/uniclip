@@ -10,6 +10,8 @@
     peerCount,
     status,
     ephemeral = false,
+    syncing = false,
+    onToggleSync = () => {},
     onShare,
     onClear,
     onEnd,
@@ -19,6 +21,8 @@
     peerCount: number;
     status: "connecting" | "connected" | "reconnecting" | "disconnected";
     ephemeral?: boolean;
+    syncing?: boolean;
+    onToggleSync?: () => void;
     onShare: () => void;
     onClear: () => void;
     onEnd: () => void;
@@ -61,6 +65,22 @@
     {/if}
 
     <div class="ml-auto flex items-center gap-2">
+      <!-- Compact sync toggle — mobile only; the desktop rail keeps the full card. -->
+      <button
+        type="button"
+        onclick={onToggleSync}
+        aria-pressed={syncing}
+        class="inline-flex items-center gap-1.5 rounded-field border px-2 py-1 text-xs font-semibold transition lg:hidden
+          {syncing ? 'border-accent/50 bg-accent-soft text-accent' : 'border-border bg-surface text-muted hover:text-text'}"
+        title={syncing ? 'Sync on — anything you copy flows to the room' : 'Sync off — sending is manual'}
+        aria-label="Toggle clipboard sync"
+      >
+        <span class="relative h-4 w-7 shrink-0 rounded-full border transition-colors {syncing ? 'border-accent bg-accent' : 'border-border-strong bg-surface-2'}">
+          <span class="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full transition-all {syncing ? 'left-[0.9rem] bg-accent-fg' : 'left-0.5 bg-text/70'}"></span>
+        </span>
+        Sync
+      </button>
+
       <StatusPill {status} />
       <span class="inline-flex items-center gap-1 text-xs text-muted" title="Devices online">
         <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">

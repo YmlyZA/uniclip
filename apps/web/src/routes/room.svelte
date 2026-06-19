@@ -276,6 +276,8 @@
     {peerCount}
     {status}
     ephemeral={ephemeralOn}
+    syncing={watching}
+    onToggleSync={toggleWatch}
     onShare={() => (showShare = true)}
     onClear={clearHistory}
     onEnd={endRoom}
@@ -333,12 +335,11 @@
     </section>
   </main>
 
-  <!-- Mobile bottom action bar (thumb zone) -->
+  <!-- Mobile bottom action bar (thumb zone) — composer only; sync moved to the header. -->
   <div
     class="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-bg/90 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md lg:hidden"
   >
     <div class="mx-auto flex max-w-5xl flex-col gap-2">
-      <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
       <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} onStageFile={(f) => (pendingFile = f)} />
     </div>
   </div>
