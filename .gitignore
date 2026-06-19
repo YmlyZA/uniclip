@@ -27,3 +27,4 @@ packages/*/src/**/*.d.ts.map
 
 # Vite writes a transient timestamp shim next to its config during builds
 vite.config.ts.timestamp-*
+.playwright-mcp/
