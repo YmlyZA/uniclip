@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { readClipboardText, readClipboardImage } from "../lib/clipboard";
+  import { readClipboard, readClipboardText } from "../lib/clipboard";
   import { toast } from "../lib/toast";
   import { MAX_TEXT_BYTES, textByteLength, withinLimit } from "../lib/limits";
   import ComposerModal from "./composer-modal.svelte";
@@ -44,20 +44,29 @@
   });
 
   async function fill() {
-    // Align the clipboard button with Ctrl/⌘+V: if the clipboard holds an
-    // image, stage it as a chip (the only image entry point on iOS); otherwise
-    // fall back to filling the textarea with clipboard text. Gated on onSendFile
-    // too: with no send path a staged chip would be a dead end, so we'd rather
-    // fall through to text than strand an unsendable image.
+    // Align the clipboard button with Ctrl/⌘+V. One read() handles both image
+    // and text (a single round-trip keeps Safari's user activation; read-then-
+    // readText would burn it and silently fail). An image stages as a chip (the
+    // only image entry point on iOS); text fills the textarea. Gated on a real
+    // send path so we never strand an unsendable image.
     if (onStageFile && onSendFile) {
-      try {
-        const img = await readClipboardImage();
-        if (img) {
-          onStageFile(img);
-          area?.focus();
-          return;
-        }
-      } catch {}
+      const { image, text: clipText, denied } = await readClipboard();
+      if (image) {
+        onStageFile(image);
+        area?.focus();
+        return;
+      }
+      if (clipText) {
+        text = clipText;
+        area?.focus();
+        return;
+      }
+      if (denied) {
+        toast("Couldn't read the clipboard — try ⌘/Ctrl+V, or your browser may be blocking it.", "warn");
+      } else {
+        toast("Nothing on the clipboard yet.", "info", 1500);
+      }
+      return;
     }
     try {
       text = await readClipboardText();

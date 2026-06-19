@@ -22,6 +22,51 @@ export function filenameForImageType(type: string): string {
  * the "Fill from clipboard" button behave like Ctrl/⌘+V (the only image entry
  * point on iOS, which has no paste shortcut).
  */
+/**
+ * Read the clipboard in a single navigator.clipboard.read() call, returning
+ * both an image (if any) and text from the SAME read. Doing one round-trip
+ * matters on Safari/iOS: a read()-then-readText() sequence spends the user
+ * activation on the first call and triggers a second permission prompt, so the
+ * text fallback silently fails. Falls back to readText() only when read() isn't
+ * available, and never throws. `denied` is true only when every access attempt
+ * threw (permission/unsupported) — distinct from an accessible-but-empty
+ * clipboard ({ ..., denied: false }) so callers don't cry "blocked" on empty.
+ */
+export async function readClipboard(): Promise<{ image: File | null; text: string; denied: boolean }> {
+  const read = navigator.clipboard?.read?.bind(navigator.clipboard);
+  if (read) {
+    try {
+      const items = await read();
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (!type) continue;
+        try {
+          const blob = await item.getType(type);
+          return { image: new File([blob], filenameForImageType(type), { type }), text: "", denied: false };
+        } catch {
+          // advertised but unreadable (e.g. SVG); keep scanning
+        }
+      }
+      for (const item of items) {
+        if (!item.types.includes("text/plain")) continue;
+        try {
+          return { image: null, text: await (await item.getType("text/plain")).text(), denied: false };
+        } catch {
+          /* fall through */
+        }
+      }
+      return { image: null, text: "", denied: false }; // accessible, just empty
+    } catch {
+      // read() denied/unsupported — try the simpler text path below
+    }
+  }
+  try {
+    return { image: null, text: await navigator.clipboard.readText(), denied: false };
+  } catch {
+    return { image: null, text: "", denied: true }; // every path threw → blocked
+  }
+}
+
 export async function readClipboardImage(): Promise<File | null> {
   const read = navigator.clipboard?.read?.bind(navigator.clipboard);
   if (!read) return null;
