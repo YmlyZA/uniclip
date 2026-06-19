@@ -2,6 +2,7 @@
   import { onDestroy } from "svelte";
   import type { TransferItem } from "../lib/transfers";
   import { toast } from "../lib/toast";
+  import { copyImageToClipboard } from "../lib/image-copy";
 
   let {
     item,
@@ -35,7 +36,7 @@
   async function copyImage() {
     if (!item.blob) return;
     try {
-      await navigator.clipboard.write([new ClipboardItem({ [item.blob.type]: item.blob })]);
+      await copyImageToClipboard(item.blob);
       toast("Image copied", "info", 1200);
     } catch {
       toast("Copy image not supported here", "warn");

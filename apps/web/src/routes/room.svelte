@@ -303,7 +303,7 @@
     <aside class="hidden w-72 shrink-0 lg:block">
       <div class="sticky top-24 space-y-3">
         <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-        <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} />
+        <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} onStageFile={(f) => (pendingFile = f)} />
 
         {#if backfillOn}
           <div class="flex items-start gap-2 rounded-field border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
@@ -339,7 +339,7 @@
   >
     <div class="mx-auto flex max-w-5xl flex-col gap-2">
       <SyncToggle on={watching} onToggle={toggleWatch} hint={syncHint} />
-      <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} />
+      <Composer onSend={sendText} onSendFile={sendFile} {pendingFile} clearPending={() => (pendingFile = null)} onStageFile={(f) => (pendingFile = f)} />
     </div>
   </div>
 
