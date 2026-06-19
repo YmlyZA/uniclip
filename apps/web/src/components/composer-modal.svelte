@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { portal } from "../lib/portal";
+
   let {
     text = $bindable(""),
     over,
@@ -41,6 +43,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
+  use:portal
   class="fixed inset-0 z-50 flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
   role="presentation"
   onclick={(e) => {
