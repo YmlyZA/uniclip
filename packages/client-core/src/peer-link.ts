@@ -22,8 +22,8 @@ export interface PeerLinkOptions {
 
 // One RTCPeerConnection + one ordered/reliable RTCDataChannel, driven by the
 // "perfect negotiation" pattern. The connection is injectable so the logic is
-// unit-testable in Node (which has no RTCPeerConnection). Politeness is primary
-// by role (responder = polite), with `from` as a glare tiebreak.
+// unit-testable in Node (which has no RTCPeerConnection). Politeness is
+// determined by role: responder (newcomer) is polite, initiator (incumbent) is impolite.
 export class PeerLink {
   readonly from = ulid();
   private readonly opts: PeerLinkOptions;
@@ -87,10 +87,10 @@ export class PeerLink {
     if (!pc) return;
     try {
       if (s.type === "sdp" && s.description) {
-        // Responder is always polite (yields on glare). Initiator is impolite
-        // (ignores colliding offers). `from` lexicographic order is a safety net
-        // for the rare simultaneous-join race where both peers claim initiator:
-        // the one with the lexicographically smaller `from` yields in that case.
+        // Responder is polite (yields on glare); initiator is impolite (ignores
+        // colliding offers). Since the relay serializes socket joins, both peers
+        // receive distinct roles (one via hello, one via peer-joined), so no tiebreak is needed.
+        // `from` is per-connection identity for future use; it is not used for politeness.
         const polite = this.opts.role === "responder";
         const collision =
           s.description.type === "offer" && (this.makingOffer || pc.signalingState !== "stable");
