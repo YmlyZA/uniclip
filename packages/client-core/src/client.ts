@@ -1,10 +1,11 @@
 import { ulid } from "ulid";
-import { ServerFrameSchema, type ClientFrame } from "@uniclip/protocol";
+import { ServerFrameSchema, type ClientFrame, ICE_SERVERS } from "@uniclip/protocol";
 import { encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/crypto";
 import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
 import { deriveRoomKey } from "./room-key";
 import { FileTransferManager, type FileClientEvent } from "./file-transfer";
+import { PeerLink, type PeerRole, type PeerSignal } from "./peer-link";
 
 const MAX_QUEUE = 100;
 
@@ -18,6 +19,7 @@ export type ClientEvent =
   | { kind: "room"; backfill: boolean; ephemeral: boolean }
   | { kind: "error"; code: string; message: string }
   | { kind: "sent"; msgId: string }
+  | { kind: "transport"; value: "p2p" | "relay" }
   | FileClientEvent;
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
@@ -35,11 +37,14 @@ export interface EventHandlers {
   "file-received": (r: { fileId: string; blob: Blob; name: string; mime: string }) => void;
   "file-error": (e: { fileId: string; code: string; message: string }) => void;
   "file-cancel": (c: { fileId: string; reason: string }) => void;
+  transport: (value: "p2p" | "relay") => void;
 }
 
 export interface UniclipClientOptions {
   roomUrl: string;
   relayBase: string; // e.g. "wss://uniclip.app" — without /ws path
+  iceServers?: RTCIceServer[];
+  createConnection?: (config: RTCConfiguration) => RTCPeerConnection;
 }
 
 export class UniclipClient {
@@ -55,22 +60,22 @@ export class UniclipClient {
   private decryptedOk = false;
   private decryptWarned = false;
   private transfers!: FileTransferManager;
+  private peer: PeerLink | null = null;
+  private transport: "p2p" | "relay" = "relay";
+  private readonly iceServers: RTCIceServer[];
+  private readonly createConnection: ((config: RTCConfiguration) => RTCPeerConnection) | undefined;
 
   constructor(opts: UniclipClientOptions) {
     const parsed = parseRoomUrl(opts.roomUrl);
     if (!parsed) throw new Error(`invalid room URL: ${opts.roomUrl}`);
     this.room = parsed;
     this.relayBase = opts.relayBase.replace(/\/$/, "");
+    this.iceServers = opts.iceServers ?? ICE_SERVERS;
+    this.createConnection = opts.createConnection;
     this.transfers = new FileTransferManager({
       routingId: this.room.routingId,
       getKey: () => this.key,
-      send: (frame) => {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify(frame));
-          return true;
-        }
-        return false; // transfers are live-only; never queued
-      },
+      send: (frame) => this.sendFrame(frame),
       emit: (evt) => this.emit(evt),
     });
   }
@@ -101,6 +106,7 @@ export class UniclipClient {
         case "file-received": (cb as EventHandlers["file-received"])(evt); break;
         case "file-error": (cb as EventHandlers["file-error"])(evt); break;
         case "file-cancel": (cb as EventHandlers["file-cancel"])(evt); break;
+        case "transport": (cb as EventHandlers["transport"])(evt.value); break;
       }
     }
   }
@@ -131,6 +137,7 @@ export class UniclipClient {
     // auto-reconnect), not just explicit disconnect(). Otherwise a receiver's
     // `incoming` entry leaks (the receiver has no stall timer; only the sender does).
     this.transfers.abortAll("disconnected");
+    this.teardownPeer(); // a fresh hello re-arms once a peer is present again
     this.ws = null;
     if (this.disposed) {
       this.emit({ kind: "status", value: "disconnected" });
@@ -182,10 +189,17 @@ export class UniclipClient {
         this.emit({ kind: "peer", count: frame.peerCount });
         this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
         this.flushQueue();
+        // Newcomer that already sees a peer → we are the polite responder.
+        if (frame.peerCount >= 2) this.armPeer("responder");
         return;
       case "peer-joined":
+        this.emit({ kind: "peer", count: frame.peerCount });
+        // Someone joined while we were already here → we are the impolite initiator.
+        if (frame.peerCount >= 2 && !this.peer) this.armPeer("initiator");
+        return;
       case "peer-left":
         this.emit({ kind: "peer", count: frame.peerCount });
+        if (frame.peerCount < 2) this.teardownPeer();
         return;
       case "clip": {
         if (!this.key) return;
@@ -228,6 +242,10 @@ export class UniclipClient {
       case "file-cancel":
         await this.transfers.handle(frame);
         return;
+      case "sdp":
+      case "ice":
+        await this.peer?.handleSignal(frame as PeerSignal);
+        return;
       case "error":
         this.emit({ kind: "error", code: frame.code, message: frame.message });
         return;
@@ -251,8 +269,7 @@ export class UniclipClient {
       ts,
     };
     const payload = JSON.stringify(frame);
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(payload);
+    if (this.sendFrame(frame)) {
       return { msgId, ts, queued: false };
     }
     // Offline: queue for flush on the next hello. ts is frozen at composition.
@@ -263,8 +280,7 @@ export class UniclipClient {
   delete(msgId: string): void {
     const frame: ClientFrame = { type: "delete", msgId };
     const payload = JSON.stringify(frame);
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(payload);
+    if (this.sendFrame(frame)) {
       return;
     }
     // Offline. If the target clip is itself still queued (composed but never
@@ -281,6 +297,52 @@ export class UniclipClient {
     this.enqueue(payload);
   }
 
+  // Prefer the P2P data channel; fall back to the WS. Returns false only when
+  // BOTH are unavailable (caller decides whether to queue).
+  private sendFrame(frame: ClientFrame): boolean {
+    const payload = JSON.stringify(frame);
+    if (this.peer?.isOpen()) {
+      if (this.peer.send(payload)) return true;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(payload);
+      return true;
+    }
+    return false;
+  }
+
+  private setTransport(value: "p2p" | "relay"): void {
+    if (this.transport === value) return;
+    this.transport = value;
+    this.emit({ kind: "transport", value });
+  }
+
+  private armPeer(role: PeerRole): void {
+    this.peer?.close();
+    this.peer = new PeerLink({
+      role,
+      iceServers: this.iceServers,
+      ...(this.createConnection ? { createConnection: this.createConnection } : {}),
+      signal: (s: PeerSignal) => {
+        // Signaling ALWAYS rides the WS — never the channel it is establishing.
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(s));
+      },
+      onOpen: () => this.setTransport("p2p"),
+      onMessage: (data) => void this.handleFrame(data).catch(() => undefined),
+      onClose: () => {
+        this.setTransport("relay");
+        this.transfers.abortAll("disconnected"); // live-only transfers cannot survive a channel drop
+      },
+    });
+    this.peer.start();
+  }
+
+  private teardownPeer(): void {
+    this.peer?.close();
+    this.peer = null;
+    this.setTransport("relay");
+  }
+
   async sendFile(file: { name: string; mime: string; bytes: Uint8Array }): Promise<{ fileId: string; chunkCount: number } | null> {
     return this.transfers.sendFile(file);
   }
@@ -291,6 +353,8 @@ export class UniclipClient {
   disconnect(): void {
     this.disposed = true;
     this.transfers.abortAll("disconnected");
+    this.peer?.close();
+    this.peer = null;
     this.ws?.close();
     this.ws = null;
   }
