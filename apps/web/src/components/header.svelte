@@ -9,6 +9,7 @@
     mode,
     peerCount,
     status,
+    transport = "relay",
     ephemeral = false,
     syncing = false,
     onToggleSync = () => {},
@@ -20,6 +21,7 @@
     mode: "A" | "B";
     peerCount: number;
     status: "connecting" | "connected" | "reconnecting" | "disconnected";
+    transport?: "p2p" | "relay";
     ephemeral?: boolean;
     syncing?: boolean;
     onToggleSync?: () => void;
@@ -89,6 +91,13 @@
           <path d="M16 6a3 3 0 0 1 0 5.5M16.5 19a5.5 5.5 0 0 0-2-4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
         </svg>
         {peerCount}
+      </span>
+      <span
+        data-testid="transport"
+        class="rounded-field px-2 py-0.5 text-[11px] {transport === 'p2p' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-faint'}"
+        title={transport === "p2p" ? "Direct peer-to-peer (LAN when local)" : "Relayed through the server"}
+      >
+        {transport === "p2p" ? "Direct" : "Relayed"}
       </span>
       <span class="hidden sm:inline-flex"><ModeChip {mode} /></span>
 

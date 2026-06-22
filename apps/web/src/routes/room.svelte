@@ -39,6 +39,7 @@
   const dragging = $derived(dragDepth > 0);
   let peerCount = $state(1);
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
+  let transport = $state<"p2p" | "relay">("relay");
   let watching = $state(false);
   let showShare = $state(false);
   let backfillOn = $state(false);
@@ -57,6 +58,7 @@
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
+    c.on("transport", (v) => (transport = v));
     c.on("room", (info) => {
       backfillOn = info.backfill;
       if (info.ephemeral && !ephemeralOn) {
@@ -275,6 +277,7 @@
     mode={room.mode}
     {peerCount}
     {status}
+    {transport}
     ephemeral={ephemeralOn}
     syncing={watching}
     onToggleSync={toggleWatch}
