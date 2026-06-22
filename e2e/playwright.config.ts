@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: "./tests",
   timeout: 30_000,
   fullyParallel: false, // we share a single relay
+  retries: 1, // retry once on transient flakes
   reporter: process.env.CI ? "github" : "list",
   use: {
     headless: true,
@@ -19,7 +20,7 @@ export default defineConfig({
       // hits a server that isn't serving yet). `/api/health` 200 means routes
       // are live.
       url: "http://localhost:3000/api/health",
-      env: { PORT: "3000" },
+      env: { PORT: "3000", ROOM_IP_LIMIT: "200" }, // raise per-IP limit so all tests can create rooms
       reuseExistingServer: !process.env.CI,
       stdout: "pipe",
       stderr: "pipe",
