@@ -85,6 +85,30 @@ export const FileCancelSchema = z
   .object({ type: z.literal("file-cancel"), fileId: z.string().regex(ULID_REGEX), reason: z.string().max(120) })
   .strict();
 
+// WebRTC signaling (Phase 3 v0.3). Opaque to the relay — fanned out, never
+// buffered. `from` is a per-connection random peer id for perfect-negotiation
+// politeness; the relay neither assigns nor validates it. `candidate` is a
+// JSON-serialized RTCIceCandidateInit, or "" for end-of-candidates.
+export const ICE_SERVERS: { urls: string }[] = [{ urls: "stun:stun.l.google.com:19302" }];
+
+export const SdpFrameSchema = z
+  .object({
+    type: z.literal("sdp"),
+    from: z.string().max(64),
+    description: z
+      .object({ type: z.enum(["offer", "answer"]), sdp: z.string().max(16 * 1024) })
+      .strict(),
+  })
+  .strict();
+
+export const IceFrameSchema = z
+  .object({
+    type: z.literal("ice"),
+    from: z.string().max(64),
+    candidate: z.string().max(4096),
+  })
+  .strict();
+
 export const HelloFrameSchema = z
   .object({
     type: z.literal("hello"),
@@ -146,6 +170,8 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   FileAckSchema,
   FileCompleteSchema,
   FileCancelSchema,
+  SdpFrameSchema,
+  IceFrameSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
@@ -159,6 +185,8 @@ export const ClientFrameSchema = z.discriminatedUnion("type", [
   FileAckSchema,
   FileCompleteSchema,
   FileCancelSchema,
+  SdpFrameSchema,
+  IceFrameSchema,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
