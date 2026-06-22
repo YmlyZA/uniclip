@@ -47,6 +47,7 @@ test("falls back to Relayed and still delivers when P2P is forced off", async ()
   await pageB.goto(relayUrl);
 
   await expect(pageA.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
+  await expect(pageB.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
   await expect(pageA.getByTestId("transport")).toHaveText("Relayed", { timeout: 10_000 });
 
   await pageA.getByRole("textbox").fill("hello over relay");
