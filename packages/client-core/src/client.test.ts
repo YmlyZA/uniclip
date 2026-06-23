@@ -474,7 +474,10 @@ describe("UniclipClient", () => {
 
 // A fake RTCPeerConnection sufficient for UniclipClient wiring tests: it opens
 // its data channel synchronously so we can assert the transport switch.
-function fakePcFactory() {
+// `setRemoteDescriptionCalls` is a shared array the caller can pass in to
+// record every setRemoteDescription invocation across all PC instances created
+// by one factory (used by the via-guard regression test).
+function fakePcFactory(setRemoteDescriptionCalls?: { type: string; sdp: string }[]) {
   return () => {
     const pc: any = {
       _ch: null as RTCDataChannel | null,
@@ -494,7 +497,9 @@ function fakePcFactory() {
       async createOffer() { return { type: "offer", sdp: "X" }; },
       async createAnswer() { return { type: "answer", sdp: "Y" }; },
       async setLocalDescription() {},
-      async setRemoteDescription() {},
+      async setRemoteDescription(d: { type: string; sdp: string }) {
+        setRemoteDescriptionCalls?.push(d);
+      },
       async addIceCandidate() {},
       close() { pc.connectionState = "closed"; pc.onconnectionstatechange?.(); },
     };
@@ -573,5 +578,58 @@ describe("UniclipClient transport seam", () => {
     const ws2 = MockWebSocket.instances.at(-1)!;
     ws2.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
     expect(ws2.sent.some((p) => JSON.parse(p).type === "rtc-hello")).toBe(true); // re-announced
+  });
+
+  it("via-guard: sdp offer over the p2p channel is silently dropped (no setRemoteDescription); same offer over WS IS processed", async () => {
+    // Regression guard for the `if (via !== "ws") return;` check in handleFrame.
+    // If that line is deleted, an sdp offer delivered over the data channel would
+    // be forwarded to peer.handleSignal, which calls setRemoteDescription — a
+    // detectable side-effect. We instrument the fake PC to record those calls.
+    // PeerLink stores the channel as the private `channel` field — access it via
+    // (peer as any).channel so we can inject a message on the p2p pipe directly.
+    const srdCalls: { type: string; sdp: string }[] = [];
+
+    // --- P2P leg: deliver sdp offer OVER THE CHANNEL ---
+    const clientA = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(srdCalls),
+    });
+    await clientA.connect();
+    const wsA = MockWebSocket.instances.at(-1)!;
+    wsA.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    // Peer announces smaller from → clientA is initiator → createDataChannel → channel opens
+    wsA.emit({ type: "rtc-hello", from: MIN_FROM });
+    // Wait for the transport to switch to p2p (channel's onopen fired)
+    await waitFor(() => (clientA as any).transport === "p2p");
+
+    // Deliver an sdp offer through the data channel's onmessage (the p2p pipe).
+    // PeerLink wires ch.onmessage → opts.onMessage(ev.data) → handleFrame(data, "p2p").
+    const sdpOffer = { type: "sdp", from: MIN_FROM, description: { type: "offer", sdp: "OFFER" } };
+    const ch = (clientA as any).peer?.channel;
+    const countBefore = srdCalls.length;
+    ch?.onmessage?.({ data: JSON.stringify(sdpOffer) });
+    await new Promise((r) => setTimeout(r, 30)); // let any async path settle
+    // GUARD: setRemoteDescription must NOT have been called (frame was via "p2p")
+    expect(srdCalls.length).toBe(countBefore);
+
+    // --- WS leg (positive control): same sdp offer over the WS IS processed ---
+    const srdCallsB: { type: string; sdp: string }[] = [];
+    const clientB = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(srdCallsB),
+    });
+    await clientB.connect();
+    const wsB = MockWebSocket.instances.at(-1)!;
+    wsB.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsB.emit({ type: "rtc-hello", from: MIN_FROM }); // arm peer (initiator)
+    await waitFor(() => (clientB as any).transport === "p2p");
+    const countBeforeB = srdCallsB.length;
+    wsB.emit(sdpOffer); // deliver the same offer over the WS (via = "ws")
+    await new Promise((r) => setTimeout(r, 30));
+    // POSITIVE CONTROL: setRemoteDescription WAS called (guard allows "ws" frames)
+    expect(srdCallsB.length).toBeGreaterThan(countBeforeB);
+
+    clientA.disconnect();
+    clientB.disconnect();
   });
 });
