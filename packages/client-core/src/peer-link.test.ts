@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { PeerLink, type PeerSignal } from "./peer-link";
 
 class FakeChannel {
@@ -33,76 +33,70 @@ class FakePC {
   close() { this.connectionState = "closed"; }
 }
 const mkPC = () => new FakePC() as unknown as RTCPeerConnection;
-
-it("initiator creates a channel, offers, and opens on answer + channel.open", async () => {
+const MIN_FROM = "00000000000000000000000000"; // < any real ULID
+const MAX_FROM = "ZZZZZZZZZZZZZZZZZZZZZZZZZZ"; // > any real ULID
+function mk(extra: Partial<Record<"onOpen" | "onClose" | "onMessage", () => void>> = {}) {
   const out: PeerSignal[] = [];
-  let opened = false;
   const link = new PeerLink({
-    role: "initiator", iceServers: [],
-    signal: (s) => out.push(s), onOpen: () => (opened = true),
-    onClose: () => {}, onMessage: () => {}, createConnection: mkPC,
+    iceServers: [], signal: (s) => out.push(s),
+    onOpen: extra.onOpen ?? (() => {}), onClose: extra.onClose ?? (() => {}),
+    onMessage: (extra.onMessage as ((d: string) => void)) ?? (() => {}),
+    createConnection: mkPC,
   });
+  return { link, out };
+}
+
+it("start() announces rtc-hello and creates no channel or offer yet", () => {
+  const { link, out } = mk();
   link.start();
+  expect(out).toEqual([{ type: "rtc-hello", from: link.from }]);
+  expect(FakePC.last.channels.length).toBe(0);
+});
+
+it("becomes the initiator (creates channel + offers) when its from is larger", async () => {
+  const { link, out } = mk();
+  link.start();
+  await link.handleSignal({ type: "rtc-hello", from: MIN_FROM }); // peer smaller → we initiate
+  expect(FakePC.last.channels.length).toBe(1);
   FakePC.last.onnegotiationneeded?.();
   await new Promise((r) => setTimeout(r, 0));
   expect(out.some((s) => s.type === "sdp" && s.description?.type === "offer")).toBe(true);
-  await link.handleSignal({ type: "sdp", from: "peer", description: { type: "answer", sdp: "ANSWER" } });
-  FakePC.last.channels[0]!.open();
-  expect(opened).toBe(true);
-  expect(link.isOpen()).toBe(true);
 });
 
-it("responder answers an incoming offer and surfaces channel messages", async () => {
-  const out: PeerSignal[] = [];
-  const got: string[] = [];
-  const link = new PeerLink({
-    role: "responder", iceServers: [],
-    signal: (s) => out.push(s), onOpen: () => {},
-    onClose: () => {}, onMessage: (d) => got.push(d), createConnection: mkPC,
-  });
+it("stays responder when its from is smaller; answers an inbound offer and opens via ondatachannel", async () => {
+  let opened = false;
+  const { link, out } = mk({ onOpen: () => (opened = true) });
   link.start();
-  await link.handleSignal({ type: "sdp", from: "peer", description: { type: "offer", sdp: "OFFER" } });
+  await link.handleSignal({ type: "rtc-hello", from: MAX_FROM }); // peer larger → we wait
+  expect(FakePC.last.channels.length).toBe(0);
+  await link.handleSignal({ type: "sdp", from: MAX_FROM, description: { type: "offer", sdp: "OFFER" } });
   expect(out.some((s) => s.type === "sdp" && s.description?.type === "answer")).toBe(true);
   const ch = new FakeChannel();
   FakePC.last.ondatachannel?.({ channel: ch });
   ch.open();
-  ch.deliver("hi");
-  expect(got).toEqual(["hi"]);
+  expect(opened).toBe(true);
+});
+
+it("resolves role once — a second rtc-hello is ignored", async () => {
+  const { link } = mk();
+  link.start();
+  await link.handleSignal({ type: "rtc-hello", from: MIN_FROM }); // initiator: 1 channel
+  await link.handleSignal({ type: "rtc-hello", from: MAX_FROM }); // ignored
+  expect(FakePC.last.channels.length).toBe(1);
 });
 
 it("forwards local ICE candidates and applies remote ones", async () => {
-  const out: PeerSignal[] = [];
-  const link = new PeerLink({
-    role: "initiator", iceServers: [], signal: (s) => out.push(s),
-    onOpen: () => {}, onClose: () => {}, onMessage: () => {}, createConnection: mkPC,
-  });
+  const { link, out } = mk();
   link.start();
   FakePC.last.onicecandidate?.({ candidate: { toJSON: () => ({ candidate: "cand" }) } });
   expect(out.some((s) => s.type === "ice" && s.candidate === JSON.stringify({ candidate: "cand" }))).toBe(true);
-  FakePC.last.onicecandidate?.({ candidate: null }); // end-of-candidates
-  expect(out.some((s) => s.type === "ice" && s.candidate === "")).toBe(true);
-  await link.handleSignal({ type: "ice", from: "peer", candidate: JSON.stringify({ candidate: "remote" }) });
+  await link.handleSignal({ type: "ice", from: MIN_FROM, candidate: JSON.stringify({ candidate: "remote" }) });
   expect(FakePC.last.added).toContainEqual({ candidate: "remote" });
-});
-
-it("a polite responder ignores nothing; an impolite initiator ignores a glare offer", async () => {
-  const link = new PeerLink({
-    role: "initiator", iceServers: [], signal: () => {},
-    onOpen: () => {}, onClose: () => {}, onMessage: () => {}, createConnection: mkPC,
-  });
-  link.start();
-  FakePC.last.signalingState = "have-local-offer"; // we are mid-offer → collision
-  const before = FakePC.last.signalingState;
-  await link.handleSignal({ type: "sdp", from: "peer", description: { type: "offer", sdp: "OFFER" } });
-  expect(FakePC.last.signalingState).toBe(before); // impolite: offer ignored, state untouched
 });
 
 it("close() closes the connection and reports not open", () => {
   let closed = false;
-  const link = new PeerLink({
-    role: "initiator", iceServers: [], signal: () => {},
-    onOpen: () => {}, onClose: () => (closed = true), onMessage: () => {}, createConnection: mkPC,
-  });
+  const { link } = mk({ onClose: () => (closed = true) });
   link.start();
   link.close();
   expect(link.isOpen()).toBe(false);

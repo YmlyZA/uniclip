@@ -116,7 +116,9 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           }
           const t = result.data.type;
           const limiter =
-            t === "sdp" || t === "ice" ? signalLimiter : t.startsWith("file-") ? chunkLimiter : frameLimiter;
+            t === "sdp" || t === "ice" || t === "rtc-hello" ? signalLimiter
+            : t.startsWith("file-") ? chunkLimiter
+            : frameLimiter;
           if (!limiter.allow(key)) {
             metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
             raw.send(
@@ -143,9 +145,10 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             store.removeRecent(room.id, result.data.msgId);
             store.addTombstone(room.id, result.data.msgId);
           }
-          // file-* and sdp/ice frames are forwarded only (already broadcast above)
-          // — never buffered, tombstoned, or persisted. Binary stays out of the
-          // relay; signaling is ephemeral and must not reach late joiners.
+          // file-* and sdp/ice/rtc-hello frames are forwarded only (already
+          // broadcast above) — never buffered, tombstoned, or persisted. Binary
+          // stays out of the relay; signaling is ephemeral and must not reach
+          // late joiners.
         },
       };
     }),

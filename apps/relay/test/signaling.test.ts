@@ -64,4 +64,33 @@ describe("signaling fan-out", () => {
     expect(closed).toBe(false); // 60 ICE frames > clip limit (20) but < signal limit (200)
     a.ws.close();
   });
+
+  it("fans out rtc-hello to the other peer and never replays it to a late joiner", async () => {
+    const id = await mintRoom();
+    const a = await open(`${baseWs}/ws/${id}`);
+    const b = await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 30));
+    a.ws.send(JSON.stringify({ type: "rtc-hello", from: "AAAA" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(b.messages.some((m) => m.type === "rtc-hello" && m.from === "AAAA")).toBe(true);
+    expect(a.messages.some((m) => m.type === "rtc-hello")).toBe(false); // not echoed to sender
+
+    const c = await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(c.messages.some((m) => m.type === "rtc-hello")).toBe(false); // not buffered/replayed
+    a.ws.close(); b.ws.close(); c.ws.close();
+  });
+
+  it("bills rtc-hello to the signalLimiter, not the clip limiter", async () => {
+    const id = await mintRoom();
+    const a = await open(`${baseWs}/ws/${id}`);
+    await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 20));
+    let closed = false;
+    a.ws.onclose = () => (closed = true);
+    for (let i = 0; i < 60; i++) a.ws.send(JSON.stringify({ type: "rtc-hello", from: `p${i}` }));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(closed).toBe(false); // 60 > clip limit (20) but < signal limit (200)
+    a.ws.close();
+  });
 });

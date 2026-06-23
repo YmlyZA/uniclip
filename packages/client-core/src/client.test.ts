@@ -474,7 +474,10 @@ describe("UniclipClient", () => {
 
 // A fake RTCPeerConnection sufficient for UniclipClient wiring tests: it opens
 // its data channel synchronously so we can assert the transport switch.
-function fakePcFactory() {
+// `setRemoteDescriptionCalls` is a shared array the caller can pass in to
+// record every setRemoteDescription invocation across all PC instances created
+// by one factory (used by the via-guard regression test).
+function fakePcFactory(setRemoteDescriptionCalls?: { type: string; sdp: string }[]) {
   return () => {
     const pc: any = {
       _ch: null as RTCDataChannel | null,
@@ -494,7 +497,9 @@ function fakePcFactory() {
       async createOffer() { return { type: "offer", sdp: "X" }; },
       async createAnswer() { return { type: "answer", sdp: "Y" }; },
       async setLocalDescription() {},
-      async setRemoteDescription() {},
+      async setRemoteDescription(d: { type: string; sdp: string }) {
+        setRemoteDescriptionCalls?.push(d);
+      },
       async addIceCandidate() {},
       close() { pc.connectionState = "closed"; pc.onconnectionstatechange?.(); },
     };
@@ -502,56 +507,51 @@ function fakePcFactory() {
   };
 }
 
+const MIN_FROM = "00000000000000000000000000";
+
 describe("UniclipClient transport seam", () => {
-  it("sends a clip over the data channel once P2P opens (not the WS)", async () => {
+  it("opens P2P via the identity handshake and sends a clip over the channel (not the WS)", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
-      relayBase: "wss://uniclip.app",
-      iceServers: [],
-      createConnection: fakePcFactory(),
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
     });
     const transports: string[] = [];
     client.on("transport", (v: string) => transports.push(v));
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
-    // peer-joined → we are the existing peer → initiator → channel opens
-    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "peer-joined", peerCount: 2 });
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    // client armed → it announced rtc-hello over the WS:
+    expect(ws.sent.some((p) => JSON.parse(p).type === "rtc-hello")).toBe(true);
+    // peer announces a smaller from → client becomes initiator → channel opens:
+    ws.emit({ type: "rtc-hello", from: MIN_FROM });
     await waitFor(() => transports.includes("p2p"));
-    const wsSentBefore = ws.sent.length;
+    const before = ws.sent.length;
     await client.send("over p2p");
-    expect(transports).toContain("p2p");
-    // The clip did NOT go over the WS (it went over the data channel).
-    expect(ws.sent.length).toBe(wsSentBefore);
+    expect(ws.sent.length).toBe(before); // clip went over the data channel, not the WS
   });
 
   it("falls back to relay transport when the peer leaves", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
-      relayBase: "wss://uniclip.app",
-      iceServers: [],
-      createConnection: fakePcFactory(),
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
     });
     const transports: string[] = [];
     client.on("transport", (v: string) => transports.push(v));
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
-    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "peer-joined", peerCount: 2 });
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    ws.emit({ type: "rtc-hello", from: MIN_FROM });
     await waitFor(() => transports.includes("p2p"));
     ws.emit({ type: "peer-left", peerCount: 1 });
     await waitFor(() => transports.at(-1) === "relay");
     await client.send("after p2p");
-    const last = JSON.parse(ws.sent.at(-1)!);
-    expect(last.type).toBe("clip"); // back on the WS
+    expect(JSON.parse(ws.sent.at(-1)!).type).toBe("clip"); // back on the WS
   });
 
-  it("routes inbound sdp/ice into the PeerLink, not into content events", async () => {
+  it("drops signaling (sdp/ice/rtc-hello) arriving over the p2p pipe; does not surface as content", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
-      relayBase: "wss://uniclip.app",
-      iceServers: [],
-      createConnection: fakePcFactory(),
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
     });
     let clips = 0;
     client.on("clip", () => clips++);
@@ -559,57 +559,77 @@ describe("UniclipClient transport seam", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
     ws.emit({ type: "ice", from: "peer", candidate: "" });
-    ws.emit({ type: "sdp", from: "peer", description: { type: "answer", sdp: "X" } });
+    ws.emit({ type: "rtc-hello", from: MIN_FROM });
     await new Promise((r) => setTimeout(r, 10));
     expect(clips).toBe(0); // signaling never surfaces as content
   });
 
-  it("ignores inbound sdp frames delivered over the P2P data channel (guard via='p2p')", async () => {
-    // Capture the PC so we can access the data channel directly.
-    let capturedPc: any = null;
-    const wrappedFactory = (): RTCPeerConnection => {
-      const pc = fakePcFactory()();
-      capturedPc = pc;
-      return pc as RTCPeerConnection;
-    };
-
+  it("re-announces its identity on reconnect (re-arm)", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
-      relayBase: "wss://uniclip.app",
-      iceServers: [],
-      createConnection: wrappedFactory,
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
     });
-    const transports: string[] = [];
-    client.on("transport", (v: string) => transports.push(v));
     await client.connect();
-    const ws = MockWebSocket.instances.at(-1)!;
+    const ws1 = MockWebSocket.instances.at(-1)!;
+    ws1.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    expect(ws1.sent.filter((p) => JSON.parse(p).type === "rtc-hello").length).toBe(1);
+    ws1.close(); // triggers reconnect → new socket
+    await waitFor(() => MockWebSocket.instances.length >= 2);
+    const ws2 = MockWebSocket.instances.at(-1)!;
+    ws2.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    expect(ws2.sent.some((p) => JSON.parse(p).type === "rtc-hello")).toBe(true); // re-announced
+  });
 
-    // peer-joined → initiator role → data channel opens
-    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "peer-joined", peerCount: 2 });
-    await waitFor(() => transports.includes("p2p"));
+  it("via-guard: sdp offer over the p2p channel is silently dropped (no setRemoteDescription); same offer over WS IS processed", async () => {
+    // Regression guard for the `if (via !== "ws") return;` check in handleFrame.
+    // If that line is deleted, an sdp offer delivered over the data channel would
+    // be forwarded to peer.handleSignal, which calls setRemoteDescription — a
+    // detectable side-effect. We instrument the fake PC to record those calls.
+    // PeerLink stores the channel as the private `channel` field — access it via
+    // (peer as any).channel so we can inject a message on the p2p pipe directly.
+    const srdCalls: { type: string; sdp: string }[] = [];
 
-    const ch = capturedPc?._ch;
-    expect(ch).not.toBeNull();
+    // --- P2P leg: deliver sdp offer OVER THE CHANNEL ---
+    const clientA = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(srdCalls),
+    });
+    await clientA.connect();
+    const wsA = MockWebSocket.instances.at(-1)!;
+    wsA.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    // Peer announces smaller from → clientA is initiator → createDataChannel → channel opens
+    wsA.emit({ type: "rtc-hello", from: MIN_FROM });
+    // Wait for the transport to switch to p2p (channel's onopen fired)
+    await waitFor(() => (clientA as any).transport === "p2p");
 
-    // Record WS outbound count (includes negotiation frames sent during setup)
-    const wsSentBefore = ws.sent.length;
+    // Deliver an sdp offer through the data channel's onmessage (the p2p pipe).
+    // PeerLink wires ch.onmessage → opts.onMessage(ev.data) → handleFrame(data, "p2p").
+    const sdpOffer = { type: "sdp", from: MIN_FROM, description: { type: "offer", sdp: "OFFER" } };
+    const ch = (clientA as any).peer?.channel;
+    const countBefore = srdCalls.length;
+    ch?.onmessage?.({ data: JSON.stringify(sdpOffer) });
+    await new Promise((r) => setTimeout(r, 30)); // let any async path settle
+    // GUARD: setRemoteDescription must NOT have been called (frame was via "p2p")
+    expect(srdCalls.length).toBe(countBefore);
 
-    // Deliver an SDP offer frame THROUGH the data channel — must be ignored.
-    // Without the guard, handleFrame would call peer.handleSignal → createAnswer
-    // → opts.signal → ws.send, increasing ws.sent.length.
-    const sdpFrame = JSON.stringify({ type: "sdp", from: "peer", description: { type: "offer", sdp: "X" } });
-    ch.onmessage?.({ data: sdpFrame } as MessageEvent);
-    await new Promise((r) => setTimeout(r, 20));
+    // --- WS leg (positive control): same sdp offer over the WS IS processed ---
+    const srdCallsB: { type: string; sdp: string }[] = [];
+    const clientB = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(srdCallsB),
+    });
+    await clientB.connect();
+    const wsB = MockWebSocket.instances.at(-1)!;
+    wsB.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsB.emit({ type: "rtc-hello", from: MIN_FROM }); // arm peer (initiator)
+    await waitFor(() => (clientB as any).transport === "p2p");
+    const countBeforeB = srdCallsB.length;
+    wsB.emit(sdpOffer); // deliver the same offer over the WS (via = "ws")
+    await new Promise((r) => setTimeout(r, 30));
+    // POSITIVE CONTROL: setRemoteDescription WAS called (guard allows "ws" frames)
+    expect(srdCallsB.length).toBeGreaterThan(countBeforeB);
 
-    // The guard must suppress all WS output triggered by this inbound sdp.
-    expect(ws.sent.length).toBe(wsSentBefore);
-
-    // Positive control: a clip frame through the data channel is still processed
-    // (attempts decrypt, doesn't emit on WS — so ws.sent stays the same).
-    const clipFrame = JSON.stringify({ type: "clip", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", iv: "aGVsbG8=", ciphertext: "aGVsbG8=", ts: 1 });
-    ch.onmessage?.({ data: clipFrame } as MessageEvent);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(ws.sent.length).toBe(wsSentBefore); // clip never writes to WS
+    clientA.disconnect();
+    clientB.disconnect();
   });
 });

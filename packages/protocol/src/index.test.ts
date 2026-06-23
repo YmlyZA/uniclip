@@ -213,3 +213,16 @@ describe("signaling frames", () => {
     expect(ServerFrameSchema.parse({ type: "ice", from, candidate: "" })).toBeDefined();
   });
 });
+
+describe("rtc-hello identity frame", () => {
+  const from = "01HF000000000000000000000A";
+  it("accepts a valid rtc-hello on both unions", () => {
+    expect(ClientFrameSchema.parse({ type: "rtc-hello", from })).toBeDefined();
+    expect(ServerFrameSchema.parse({ type: "rtc-hello", from })).toBeDefined();
+  });
+  it("rejects a missing or oversized from, and extra keys", () => {
+    expect(() => ClientFrameSchema.parse({ type: "rtc-hello" })).toThrow();
+    expect(() => ClientFrameSchema.parse({ type: "rtc-hello", from: "x".repeat(65) })).toThrow();
+    expect(() => ClientFrameSchema.parse({ type: "rtc-hello", from, extra: 1 })).toThrow();
+  });
+});

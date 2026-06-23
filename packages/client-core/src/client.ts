@@ -5,7 +5,7 @@ import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
 import { deriveRoomKey } from "./room-key";
 import { FileTransferManager, type FileClientEvent } from "./file-transfer";
-import { PeerLink, type PeerRole, type PeerSignal } from "./peer-link";
+import { PeerLink, type PeerSignal } from "./peer-link";
 
 const MAX_QUEUE = 100;
 
@@ -189,13 +189,12 @@ export class UniclipClient {
         this.emit({ kind: "peer", count: frame.peerCount });
         this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
         this.flushQueue();
-        // Newcomer that already sees a peer → we are the polite responder.
-        if (frame.peerCount >= 2) this.armPeer("responder");
+        // Arm a PeerLink; the rtc-hello identity handshake decides who initiates.
+        if (frame.peerCount >= 2) this.armPeer();
         return;
       case "peer-joined":
         this.emit({ kind: "peer", count: frame.peerCount });
-        // Someone joined while we were already here → we are the impolite initiator.
-        if (frame.peerCount >= 2 && !this.peer) this.armPeer("initiator");
+        if (frame.peerCount >= 2 && !this.peer) this.armPeer();
         return;
       case "peer-left":
         this.emit({ kind: "peer", count: frame.peerCount });
@@ -244,6 +243,7 @@ export class UniclipClient {
         return;
       case "sdp":
       case "ice":
+      case "rtc-hello":
         if (via !== "ws") return;
         await this.peer?.handleSignal(frame as PeerSignal);
         return;
@@ -318,10 +318,9 @@ export class UniclipClient {
     this.emit({ kind: "transport", value });
   }
 
-  private armPeer(role: PeerRole): void {
+  private armPeer(): void {
     this.peer?.close();
     this.peer = new PeerLink({
-      role,
       iceServers: this.iceServers,
       ...(this.createConnection ? { createConnection: this.createConnection } : {}),
       signal: (s: PeerSignal) => {
