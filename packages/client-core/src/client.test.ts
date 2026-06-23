@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UniclipClient } from "./client";
-import { PeerLink } from "./peer-link"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 // Minimal MockWebSocket compatible with `globalThis.WebSocket`
 class MockWebSocket {
@@ -563,5 +562,54 @@ describe("UniclipClient transport seam", () => {
     ws.emit({ type: "sdp", from: "peer", description: { type: "answer", sdp: "X" } });
     await new Promise((r) => setTimeout(r, 10));
     expect(clips).toBe(0); // signaling never surfaces as content
+  });
+
+  it("ignores inbound sdp frames delivered over the P2P data channel (guard via='p2p')", async () => {
+    // Capture the PC so we can access the data channel directly.
+    let capturedPc: any = null;
+    const wrappedFactory = (): RTCPeerConnection => {
+      const pc = fakePcFactory()();
+      capturedPc = pc;
+      return pc as RTCPeerConnection;
+    };
+
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+      iceServers: [],
+      createConnection: wrappedFactory,
+    });
+    const transports: string[] = [];
+    client.on("transport", (v: string) => transports.push(v));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+
+    // peer-joined → initiator role → data channel opens
+    ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    ws.emit({ type: "peer-joined", peerCount: 2 });
+    await waitFor(() => transports.includes("p2p"));
+
+    const ch = capturedPc?._ch;
+    expect(ch).not.toBeNull();
+
+    // Record WS outbound count (includes negotiation frames sent during setup)
+    const wsSentBefore = ws.sent.length;
+
+    // Deliver an SDP offer frame THROUGH the data channel — must be ignored.
+    // Without the guard, handleFrame would call peer.handleSignal → createAnswer
+    // → opts.signal → ws.send, increasing ws.sent.length.
+    const sdpFrame = JSON.stringify({ type: "sdp", from: "peer", description: { type: "offer", sdp: "X" } });
+    ch.onmessage?.({ data: sdpFrame } as MessageEvent);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The guard must suppress all WS output triggered by this inbound sdp.
+    expect(ws.sent.length).toBe(wsSentBefore);
+
+    // Positive control: a clip frame through the data channel is still processed
+    // (attempts decrypt, doesn't emit on WS — so ws.sent stays the same).
+    const clipFrame = JSON.stringify({ type: "clip", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", iv: "aGVsbG8=", ciphertext: "aGVsbG8=", ts: 1 });
+    ch.onmessage?.({ data: clipFrame } as MessageEvent);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ws.sent.length).toBe(wsSentBefore); // clip never writes to WS
   });
 });

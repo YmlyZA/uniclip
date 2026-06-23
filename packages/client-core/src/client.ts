@@ -173,7 +173,7 @@ export class UniclipClient {
     }
   }
 
-  private async handleFrame(raw: string): Promise<void> {
+  private async handleFrame(raw: string, via: "ws" | "p2p" = "ws"): Promise<void> {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -244,6 +244,7 @@ export class UniclipClient {
         return;
       case "sdp":
       case "ice":
+        if (via !== "ws") return;
         await this.peer?.handleSignal(frame as PeerSignal);
         return;
       case "error":
@@ -328,7 +329,7 @@ export class UniclipClient {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(s));
       },
       onOpen: () => this.setTransport("p2p"),
-      onMessage: (data) => void this.handleFrame(data).catch(() => undefined),
+      onMessage: (data) => void this.handleFrame(data, "p2p").catch(() => undefined),
       onClose: () => {
         this.setTransport("relay");
         this.transfers.abortAll("disconnected"); // live-only transfers cannot survive a channel drop

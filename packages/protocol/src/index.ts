@@ -86,9 +86,11 @@ export const FileCancelSchema = z
   .strict();
 
 // WebRTC signaling (Phase 3 v0.3). Opaque to the relay — fanned out, never
-// buffered. `from` is a per-connection random peer id for perfect-negotiation
-// politeness; the relay neither assigns nor validates it. `candidate` is a
-// JSON-serialized RTCIceCandidateInit, or "" for end-of-candidates.
+// buffered. `from` is a per-connection random peer id carried on signaling
+// frames for peer identity / future use; it is NOT used for politeness
+// tiebreaking (politeness is role-only: responder = polite). The relay neither
+// assigns nor validates it. `candidate` is a JSON-serialized
+// RTCIceCandidateInit, or "" for end-of-candidates.
 export const ICE_SERVERS: { urls: string }[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
 export const SdpFrameSchema = z
