@@ -111,6 +111,13 @@ export const IceFrameSchema = z
   })
   .strict();
 
+// WebRTC identity announce (reconnect hardening). Opaque to the relay (fanned
+// out, never buffered). The larger `from` becomes the sole data-channel
+// initiator, making role assignment deterministic across any reconnect order.
+export const RtcHelloSchema = z
+  .object({ type: z.literal("rtc-hello"), from: z.string().max(64) })
+  .strict();
+
 export const HelloFrameSchema = z
   .object({
     type: z.literal("hello"),
@@ -174,6 +181,7 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   FileCancelSchema,
   SdpFrameSchema,
   IceFrameSchema,
+  RtcHelloSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
@@ -189,6 +197,7 @@ export const ClientFrameSchema = z.discriminatedUnion("type", [
   FileCancelSchema,
   SdpFrameSchema,
   IceFrameSchema,
+  RtcHelloSchema,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 
