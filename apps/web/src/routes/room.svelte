@@ -39,6 +39,7 @@
   const dragging = $derived(dragDepth > 0);
   let peerCount = $state(1);
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
+  let transport = $state<"p2p" | "relay">("relay");
   let watching = $state(false);
   let showShare = $state(false);
   let backfillOn = $state(false);
@@ -53,10 +54,48 @@
     persist = new PersistedItems({ roomId: room.routingId, key, cap: 50 });
     items = await persist.load();
 
-    const c = new UniclipClient({ roomUrl, relayBase });
+    // Test-only hook: ?forceRelay=1 disables WebRTC so the relay path can be
+    // exercised deterministically. A stub RTCPeerConnection whose data channel
+    // never opens keeps transport = "relay" without throwing or affecting routing.
+    const forceRelay = new URLSearchParams(location.search).has("forceRelay");
+
+    const c = new UniclipClient({
+      roomUrl,
+      relayBase,
+      ...(forceRelay
+        ? {
+            iceServers: [],
+            createConnection: () =>
+              ({
+                onicecandidate: null,
+                ondatachannel: null,
+                onnegotiationneeded: null,
+                onconnectionstatechange: null,
+                signalingState: "stable",
+                connectionState: "new",
+                localDescription: null,
+                createDataChannel: () => ({
+                  readyState: "connecting",
+                  send() {},
+                  close() {},
+                  onopen: null,
+                  onclose: null,
+                  onmessage: null,
+                }),
+                createOffer: async () => ({ type: "offer", sdp: "" }),
+                createAnswer: async () => ({ type: "answer", sdp: "" }),
+                setLocalDescription: async () => {},
+                setRemoteDescription: async () => {},
+                addIceCandidate: async () => {},
+                close() {},
+              }) as unknown as RTCPeerConnection,
+          }
+        : {}),
+    });
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
+    c.on("transport", (v) => (transport = v));
     c.on("room", (info) => {
       backfillOn = info.backfill;
       if (info.ephemeral && !ephemeralOn) {
@@ -275,6 +314,7 @@
     mode={room.mode}
     {peerCount}
     {status}
+    {transport}
     ephemeral={ephemeralOn}
     syncing={watching}
     onToggleSync={toggleWatch}

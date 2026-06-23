@@ -8,8 +8,9 @@ import { log } from "./log";
 
 const store = new RoomStore({ db: process.env.ROOM_DB_PATH ?? ":memory:" });
 const metrics = new Metrics();
+const roomIpLimit = Number(process.env.ROOM_IP_LIMIT ?? 10) || 10;
 const ipLimiter = {
-  inner: new SlidingWindowLimiter(10, 3600_000),
+  inner: new SlidingWindowLimiter(roomIpLimit, 3600_000),
   allow(ip: string) {
     return this.inner.allow(ip);
   },

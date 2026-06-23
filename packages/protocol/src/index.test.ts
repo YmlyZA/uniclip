@@ -9,6 +9,8 @@ import {
   PROTOCOL_VERSION,
   CHUNK_BYTES,
   MAX_FILE_BYTES,
+  SdpFrameSchema,
+  IceFrameSchema,
 } from "./index";
 
 describe("ULID_REGEX", () => {
@@ -180,5 +182,34 @@ describe("file-transfer frames", () => {
     expect(PROTOCOL_VERSION).toBe(1);
     expect(CHUNK_BYTES).toBe(32 * 1024);
     expect(MAX_FILE_BYTES).toBe(100 * 1024 * 1024);
+  });
+});
+
+describe("signaling frames", () => {
+  const from = "01HF000000000000000000000A";
+  it("accepts a valid sdp offer", () => {
+    expect(
+      ClientFrameSchema.parse({
+        type: "sdp", from,
+        description: { type: "offer", sdp: "v=0\r\n..." },
+      }),
+    ).toBeDefined();
+  });
+  it("accepts an ice candidate and an end-of-candidates marker", () => {
+    expect(ClientFrameSchema.parse({ type: "ice", from, candidate: '{"candidate":"x"}' })).toBeDefined();
+    expect(ClientFrameSchema.parse({ type: "ice", from, candidate: "" })).toBeDefined();
+  });
+  it("rejects a bad sdp description type", () => {
+    expect(() =>
+      ClientFrameSchema.parse({ type: "sdp", from, description: { type: "nope", sdp: "x" } }),
+    ).toThrow();
+  });
+  it("rejects an oversized sdp", () => {
+    expect(() =>
+      ClientFrameSchema.parse({ type: "sdp", from, description: { type: "offer", sdp: "x".repeat(16385) } }),
+    ).toThrow();
+  });
+  it("forwards both shapes as server frames too", () => {
+    expect(ServerFrameSchema.parse({ type: "ice", from, candidate: "" })).toBeDefined();
   });
 });

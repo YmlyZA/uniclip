@@ -22,6 +22,10 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
   // transfer doesn't trip the clip/delete limiter. Flow control is the real
   // pace governor; this is only a DoS ceiling.
   const chunkLimiter = new SlidingWindowLimiter(2000, 10_000);
+  // sdp/ice signaling is bursty (ICE trickle) but bounded; give it its own
+  // budget so it never trips the clip limiter, and never bill it to the file
+  // limiter either.
+  const signalLimiter = new SlidingWindowLimiter(200, 10_000);
   const socketKeys = new WeakMap<ServerWebSocket<{ roomId: string }>, string>();
 
   app.get(
@@ -110,7 +114,9 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             key = crypto.randomUUID();
             socketKeys.set(raw, key);
           }
-          const limiter = result.data.type.startsWith("file-") ? chunkLimiter : frameLimiter;
+          const t = result.data.type;
+          const limiter =
+            t === "sdp" || t === "ice" ? signalLimiter : t.startsWith("file-") ? chunkLimiter : frameLimiter;
           if (!limiter.allow(key)) {
             metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
             raw.send(
@@ -137,14 +143,15 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
             store.removeRecent(room.id, result.data.msgId);
             store.addTombstone(room.id, result.data.msgId);
           }
-          // file-* frames are forwarded only (already broadcast above) — never
-          // buffered, tombstoned, or persisted. Binary stays out of the relay.
+          // file-* and sdp/ice frames are forwarded only (already broadcast above)
+          // — never buffered, tombstoned, or persisted. Binary stays out of the
+          // relay; signaling is ephemeral and must not reach late joiners.
         },
       };
     }),
   );
 
-  return { websocket, fetch: app.fetch, frameLimiter, chunkLimiter };
+  return { websocket, fetch: app.fetch, frameLimiter, chunkLimiter, signalLimiter };
 }
 
 function send(ws: ServerWebSocket<unknown>, frame: ServerFrame): void {
