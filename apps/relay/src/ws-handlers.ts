@@ -116,7 +116,9 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
           }
           const t = result.data.type;
           const limiter =
-            t === "sdp" || t === "ice" ? signalLimiter : t.startsWith("file-") ? chunkLimiter : frameLimiter;
+            t === "sdp" || t === "ice" || t === "rtc-hello" ? signalLimiter
+            : t.startsWith("file-") ? chunkLimiter
+            : frameLimiter;
           if (!limiter.allow(key)) {
             metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
             raw.send(
