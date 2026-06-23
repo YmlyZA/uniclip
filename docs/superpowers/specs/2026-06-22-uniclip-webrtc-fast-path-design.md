@@ -95,13 +95,14 @@ Wraps one `RTCPeerConnection` + one `RTCDataChannel`, implements **perfect negot
 
 1. Client derives key, opens WS (`/ws/<routingId>`) → `hello` → status `connected`, peer count, room info, queue flush. **Identical to today.** Transport starts as `relay`.
 2. If `peerCount >= 2`, both peers arm `PeerLink` and exchange `sdp`/`ice` over the WS. ICE discovers host/mDNS (LAN), srflx (STUN) candidates.
-3. On `datachannel.open` → emit `transport: "p2p"`; `sendFrame` now prefers the channel. LAN-direct when both on the same network.
+3. On `datachannel.open` → emit `transport: "p2p"`; `sendFrame` now prefers the channel. LAN-direct when both on the same network. **Inbound `sdp`/`ice` are accepted only from the WS pipe** (`handleFrame(raw, via)` drops signaling when `via === "p2p"`) — signaling can never ride the channel it establishes, in either direction.
 4. **Fallback paths (all silent, no message loss):**
-   - ICE never completes within `P2P_CONNECT_TIMEOUT_MS` → stay `relay`.
-   - Channel drops mid-session → emit `transport: "relay"`, content immediately rides WS again; `PeerLink` attempts one renegotiation.
-   - WS drops (today's reconnect) → file transfers abort (unchanged); `PeerLink` is torn down and re-armed after the next `hello`.
+   - ICE never completes → transport simply stays at its default `relay` (no timer needed; there is no error to suppress, so no `P2P_CONNECT_TIMEOUT_MS` is wired — the default-`relay` state *is* the guarantee).
+   - Channel/connection drops mid-session → `onconnectionstatechange`/channel `onclose` → emit `transport: "relay"`, content immediately rides the WS again. The peer is re-armed on the next presence transition (it is not auto-renegotiated in place).
    - Old relay (no `sdp`/`ice` support) → signaling frames are dropped by the relay's `safeParse`; ICE never completes → permanent `relay`. New client + old relay = today's behavior.
 5. The WS is **never** closed while connected — it is signaling + presence + fallback for the whole session.
+
+**Known limitation — reconnect role re-arming (accepted for P1; follow-up tracked in §9).** Roles are assigned by join order: the incumbent receives `peer-joined` → `initiator` (creates the data channel); the newcomer receives its own `hello` with `peerCount >= 2` → `responder`. A **single-peer** WS reconnect self-heals: the stable peer sees `peer-left` then `peer-joined` (→ `initiator`), the reconnector sees `hello` (→ `responder`) — distinct roles, P2P re-forms. A **simultaneous double-reconnect** can race so that both still-present peers take the `hello` → `responder` branch; since only the `initiator` creates the channel, neither does, and the pair **stays `relay` (lossless — content keeps flowing over the WS)** until the next join/leave re-assigns roles. This degrades to the intended fallback, never loses or duplicates a message. The robust fix (revive the per-connection `from` id as a deterministic initiator tiebreak so P2P self-heals under any reconnect) is deferred — see §9.
 
 ## 7. Security model
 
@@ -127,3 +128,7 @@ Wraps one `RTCPeerConnection` + one `RTCDataChannel`, implements **perfect negot
 - Whether the data channel is created with `{ ordered: true }` only, or also negotiated `id` for determinism.
 - Renegotiation backoff after a mid-session channel drop (one immediate attempt vs. bounded retry).
 - Web UI badge placement (header, near the existing sync/status indicators) — cosmetic, can ride the P2 pairing/presence work.
+
+## 10. Deferred follow-ups (not in P1 as built)
+- **Robust reconnect re-arming (`from` tiebreak).** As built, role is join-order only and a simultaneous double-reconnect can leave both peers `relay` until the next presence change (§6 "Known limitation"). Follow-up: exchange the per-connection `from` id (already carried on every `sdp`/`ice` frame) so peers deterministically agree on a single `initiator` that creates the channel, making P2P self-heal under any reconnect race. Small, isolated change; lands as a follow-up before/with P2.
+- **Self-hosted STUN / explicit relay-as-TURN-equivalent semantics.** P1 uses public STUN; a later phase may self-host (spec §2).
