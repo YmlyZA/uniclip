@@ -94,6 +94,9 @@ export class PeerLink {
         this.wireChannel(pc.createDataChannel(DATACHANNEL_LABEL, { ordered: true }));
       }
       // Smaller `from` = responder: wait for ondatachannel + the inbound offer.
+      // Equal `from` (astronomically unlikely between two random ULIDs) means
+      // neither side initiates — by design this degrades to relay (lossless),
+      // exactly like pairing with a peer that never announces.
       return;
     }
     try {
