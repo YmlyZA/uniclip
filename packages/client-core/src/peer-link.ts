@@ -1,17 +1,14 @@
 import { ulid } from "ulid";
 import { DATACHANNEL_LABEL } from "./constants";
 
-export type PeerRole = "initiator" | "responder";
-
 export interface PeerSignal {
-  type: "sdp" | "ice";
+  type: "sdp" | "ice" | "rtc-hello";
   from: string;
   description?: { type: "offer" | "answer"; sdp: string };
   candidate?: string;
 }
 
 export interface PeerLinkOptions {
-  role: PeerRole;
   iceServers: RTCIceServer[];
   signal: (s: PeerSignal) => void;
   onOpen: () => void;
@@ -22,14 +19,17 @@ export interface PeerLinkOptions {
 
 // One RTCPeerConnection + one ordered/reliable RTCDataChannel, driven by the
 // "perfect negotiation" pattern. The connection is injectable so the logic is
-// unit-testable in Node (which has no RTCPeerConnection). Politeness is
-// determined by role: responder (newcomer) is polite, initiator (incumbent) is impolite.
+// unit-testable in Node (which has no RTCPeerConnection). Role is decided by an
+// identity handshake: each peer announces its random per-connection `from` via
+// an `rtc-hello`; the larger `from` is the sole initiator (creates the channel
+// and offers). This is deterministic across any join/reconnect ordering.
 export class PeerLink {
   readonly from = ulid();
   private readonly opts: PeerLinkOptions;
   private readonly make: (config: RTCConfiguration) => RTCPeerConnection;
   private pc: RTCPeerConnection | null = null;
   private channel: RTCDataChannel | null = null;
+  private peerFrom: string | null = null;
   private makingOffer = false;
   private ignoreOffer = false;
   private closed = false;
@@ -56,12 +56,12 @@ export class PeerLink {
       const s = pc.connectionState;
       if (s === "failed" || s === "disconnected" || s === "closed") this.fireClose();
     };
-    if (this.opts.role === "initiator") {
-      pc.onnegotiationneeded = () => void this.makeOffer();
-      this.wireChannel(pc.createDataChannel(DATACHANNEL_LABEL, { ordered: true }));
-    } else {
-      pc.ondatachannel = (ev) => this.wireChannel(ev.channel);
-    }
+    // Either peer may turn out to be the responder, so always be ready to
+    // receive the channel. The channel is created only by the initiator, once
+    // both `from` ids are known (see handleSignal "rtc-hello").
+    pc.ondatachannel = (ev) => this.wireChannel(ev.channel);
+    // Announce identity; the larger `from` becomes the sole initiator.
+    this.opts.signal({ type: "rtc-hello", from: this.from });
   }
 
   private async makeOffer(): Promise<void> {
@@ -85,13 +85,22 @@ export class PeerLink {
   async handleSignal(s: PeerSignal): Promise<void> {
     const pc = this.pc;
     if (!pc) return;
+    if (s.type === "rtc-hello") {
+      if (this.peerFrom !== null) return; // resolve role once
+      this.peerFrom = s.from;
+      if (this.from > s.from) {
+        // Larger `from` = sole initiator: create the channel and offer.
+        pc.onnegotiationneeded = () => void this.makeOffer();
+        this.wireChannel(pc.createDataChannel(DATACHANNEL_LABEL, { ordered: true }));
+      }
+      // Smaller `from` = responder: wait for ondatachannel + the inbound offer.
+      return;
+    }
     try {
       if (s.type === "sdp" && s.description) {
-        // Responder is polite (yields on glare); initiator is impolite (ignores
-        // colliding offers). Since the relay serializes socket joins, both peers
-        // receive distinct roles (one via hello, one via peer-joined), so no tiebreak is needed.
-        // `from` is per-connection identity for future use; it is not used for politeness.
-        const polite = this.opts.role === "responder";
+        // Exactly one peer offers, so glare should not occur; keep an
+        // identity-based backstop — the smaller `from` is polite (yields).
+        const polite = this.peerFrom !== null ? this.from < this.peerFrom : true;
         const collision =
           s.description.type === "offer" && (this.makingOffer || pc.signalingState !== "stable");
         this.ignoreOffer = !polite && collision;
