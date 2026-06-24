@@ -6,6 +6,7 @@ import { Backoff } from "./backoff";
 import { deriveRoomKey } from "./room-key";
 import { FileTransferManager, type FileClientEvent } from "./file-transfer";
 import { PeerLink, type PeerSignal } from "./peer-link";
+import { PresenceManager, type Device, type PresenceFrame } from "./presence";
 
 const MAX_QUEUE = 100;
 
@@ -20,6 +21,7 @@ export type ClientEvent =
   | { kind: "error"; code: string; message: string }
   | { kind: "sent"; msgId: string }
   | { kind: "transport"; value: "p2p" | "relay" }
+  | { kind: "presence"; roster: Device[] }
   | FileClientEvent;
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
@@ -38,6 +40,7 @@ export interface EventHandlers {
   "file-error": (e: { fileId: string; code: string; message: string }) => void;
   "file-cancel": (c: { fileId: string; reason: string }) => void;
   transport: (value: "p2p" | "relay") => void;
+  presence: (roster: Device[]) => void;
 }
 
 export interface UniclipClientOptions {
@@ -45,6 +48,8 @@ export interface UniclipClientOptions {
   relayBase: string; // e.g. "wss://uniclip.app" — without /ws path
   iceServers?: RTCIceServer[];
   createConnection?: (config: RTCConfiguration) => RTCPeerConnection;
+  deviceId?: string;
+  deviceName?: string;
 }
 
 export class UniclipClient {
@@ -64,6 +69,8 @@ export class UniclipClient {
   private transport: "p2p" | "relay" = "relay";
   private readonly iceServers: RTCIceServer[];
   private readonly createConnection: ((config: RTCConfiguration) => RTCPeerConnection) | undefined;
+  private presence!: PresenceManager;
+  private deviceName: string;
 
   constructor(opts: UniclipClientOptions) {
     const parsed = parseRoomUrl(opts.roomUrl);
@@ -77,6 +84,19 @@ export class UniclipClient {
       getKey: () => this.key,
       send: (frame) => this.sendFrame(frame),
       emit: (evt) => this.emit(evt),
+    });
+    this.deviceName = (opts.deviceName ?? "This device").slice(0, 40);
+    const selfId = opts.deviceId ?? ulid();
+    this.presence = new PresenceManager({
+      routingId: this.room.routingId,
+      selfId,
+      getKey: () => this.key,
+      getName: () => this.deviceName,
+      send: (frame: PresenceFrame) => {
+        // Presence rides the WS so the relay fans it to ALL peers (rooms can be >2).
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(frame));
+      },
+      emit: (roster) => this.emit({ kind: "presence", roster }),
     });
   }
 
@@ -107,6 +127,7 @@ export class UniclipClient {
         case "file-error": (cb as EventHandlers["file-error"])(evt); break;
         case "file-cancel": (cb as EventHandlers["file-cancel"])(evt); break;
         case "transport": (cb as EventHandlers["transport"])(evt.value); break;
+        case "presence": (cb as EventHandlers["presence"])(evt.roster); break;
       }
     }
   }
@@ -138,6 +159,7 @@ export class UniclipClient {
     // `incoming` entry leaks (the receiver has no stall timer; only the sender does).
     this.transfers.abortAll("disconnected");
     this.teardownPeer(); // a fresh hello re-arms once a peer is present again
+    this.presence.stop();
     this.ws = null;
     if (this.disposed) {
       this.emit({ kind: "status", value: "disconnected" });
@@ -191,14 +213,17 @@ export class UniclipClient {
         this.flushQueue();
         // Arm a PeerLink; the rtc-hello identity handshake decides who initiates.
         if (frame.peerCount >= 2) this.armPeer();
+        this.presence.start(); // idempotent; announces self + starts heartbeat/sweep
         return;
       case "peer-joined":
         this.emit({ kind: "peer", count: frame.peerCount });
         if (frame.peerCount >= 2 && !this.peer) this.armPeer();
+        this.presence.onPeerChange(false);
         return;
       case "peer-left":
         this.emit({ kind: "peer", count: frame.peerCount });
         if (frame.peerCount < 2) this.teardownPeer();
+        this.presence.onPeerChange(true);
         return;
       case "clip": {
         if (!this.key) return;
@@ -246,6 +271,10 @@ export class UniclipClient {
       case "rtc-hello":
         if (via !== "ws") return;
         await this.peer?.handleSignal(frame as PeerSignal);
+        return;
+      case "presence":
+        if (via !== "ws") return;
+        await this.presence.handlePresence(frame);
         return;
       case "error":
         this.emit({ kind: "error", code: frame.code, message: frame.message });
@@ -350,11 +379,17 @@ export class UniclipClient {
   declineFile(fileId: string): void { this.transfers.declineFile(fileId); }
   cancelFile(fileId: string): void { this.transfers.cancelFile(fileId); }
 
+  setDeviceName(name: string): void {
+    this.deviceName = name.slice(0, 40);
+    this.presence.onNameChange();
+  }
+
   disconnect(): void {
     this.disposed = true;
     this.transfers.abortAll("disconnected");
     this.peer?.close();
     this.peer = null;
+    this.presence.stop();
     this.ws?.close();
     this.ws = null;
   }
