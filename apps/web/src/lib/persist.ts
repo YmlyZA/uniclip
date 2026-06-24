@@ -8,6 +8,9 @@ export interface Item {
   mine?: boolean;
   /** True while a sent item is still queued (offline) and not yet delivered. */
   pending?: boolean;
+  /** True when the user pinned this item; pinned items survive cap eviction.
+   *  Local-only: persisted at rest but never transmitted. */
+  pinned?: boolean;
 }
 
 export interface PersistOptions {
@@ -22,6 +25,7 @@ export interface ItemStore {
   add(item: Item): Promise<void>;
   remove(id: string): Promise<void>;
   clear(): void;
+  setPinned(id: string, pinned: boolean): Promise<void>;
 }
 
 export class PersistedItems implements ItemStore {
@@ -39,9 +43,25 @@ export class PersistedItems implements ItemStore {
     if (!this.loaded) await this.load();
     if (this.items.some((i) => i.id === item.id)) return; // dedup by frame identity
     this.items.push(item);
-    if (this.items.length > this.opts.cap) {
-      this.items.splice(0, this.items.length - this.opts.cap);
+    this.evict();
+    await this.save();
+  }
+
+  // Drop oldest UNPINNED items until within cap. Pinned items are protected
+  // (the cap is a soft limit on unpinned); if everything is pinned, keep all.
+  private evict(): void {
+    while (this.items.length > this.opts.cap) {
+      const idx = this.items.findIndex((i) => !i.pinned);
+      if (idx === -1) break;
+      this.items.splice(idx, 1);
     }
+  }
+
+  async setPinned(id: string, pinned: boolean): Promise<void> {
+    if (!this.loaded) await this.load();
+    const it = this.items.find((i) => i.id === id);
+    if (!it || !!it.pinned === pinned) return;
+    it.pinned = pinned;
     await this.save();
   }
 
@@ -89,9 +109,12 @@ export class PersistedItems implements ItemStore {
         JSON.stringify({ iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) }),
       );
     } catch {
-      // QuotaExceededError → drop oldest and retry once
+      // QuotaExceededError → drop the oldest unpinned item and retry once
+      // (fall back to the absolute oldest only if every item is pinned, so we
+      // always make progress).
       if (this.items.length > 1) {
-        this.items.shift();
+        const idx = this.items.findIndex((i) => !i.pinned);
+        this.items.splice(idx === -1 ? 0 : idx, 1);
         await this.save();
       }
     }
@@ -114,5 +137,8 @@ export class EphemeralStore implements ItemStore {
   }
   clear(): void {
     /* nothing to clear */
+  }
+  async setPinned(_id: string, _pinned: boolean): Promise<void> {
+    /* intentionally not persisted */
   }
 }

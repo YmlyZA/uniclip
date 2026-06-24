@@ -64,3 +64,27 @@ describe("PersistedItems", () => {
     expect(writes).toBe(0);
   });
 });
+
+describe("pin", () => {
+  it("protects a pinned item from cap eviction (oldest unpinned drops first)", async () => {
+    const key = await deriveKey({ secret: "pin-secret-pin-secret", salt: "room1" });
+    const store = new PersistedItems({ roomId: "room1", key, cap: 2 });
+    await store.add({ id: "a", text: "a", ts: 1 });
+    await store.add({ id: "b", text: "b", ts: 2 });
+    await store.setPinned("a", true);          // pin the oldest
+    await store.add({ id: "c", text: "c", ts: 3 }); // over cap → evict oldest UNPINNED (b)
+    const ids = (await store.load()).map((i) => i.id);
+    expect(ids).toContain("a"); // pinned survived
+    expect(ids).toContain("c");
+    expect(ids).not.toContain("b");
+  });
+  it("setPinned persists and is idempotent", async () => {
+    const key = await deriveKey({ secret: "pin-secret-pin-secret", salt: "room1" });
+    const store = new PersistedItems({ roomId: "room2", key, cap: 50 });
+    await store.add({ id: "x", text: "x", ts: 1 });
+    await store.setPinned("x", true);
+    expect((await store.load()).find((i) => i.id === "x")?.pinned).toBe(true);
+    await store.setPinned("x", true); // no-op, no throw
+    expect((await store.load()).find((i) => i.id === "x")?.pinned).toBe(true);
+  });
+});
