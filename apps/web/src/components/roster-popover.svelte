@@ -23,7 +23,7 @@
 <svelte:window onkeydown={onKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="w-64 overflow-hidden rounded-card border border-border bg-elevated p-2 shadow-[var(--shadow-card)]" role="dialog" aria-label="Connected devices" onclick={(e) => e.stopPropagation()}>
+<div class="w-64 overflow-hidden rounded-card border border-border bg-elevated p-2 shadow-[var(--shadow-card)]" role="dialog" aria-label="Connected devices" tabindex="-1" onclick={(e) => e.stopPropagation()}>
   <div class="flex items-center justify-between gap-2 rounded-field bg-surface-2 px-3 py-2">
     {#if editing}
       <input
