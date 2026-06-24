@@ -647,15 +647,6 @@ describe("UniclipClient transport seam", () => {
   });
 });
 
-// Helper: grab the open fake data channel from a client connected with fakePcFactory.
-// Mirrors the pattern used in the via-guard test: (client as any).peer?.channel.
-function fakeChannelOf(ws: MockWebSocket): { onmessage: ((ev: { data: string }) => void) | null } {
-  // The channel is stored on PeerLink.channel (private); access via any cast on the
-  // UniclipClient.peer field, which is also private. The test that arms the channel
-  // must have waited for transport === "p2p" before calling this.
-  void ws; // parameter kept for readability — the channel lives on the client, not the ws
-  return { onmessage: null }; // fallback; callers override with the real channel below
-}
 
 describe("UniclipClient presence", () => {
   it("surfaces a presence roster from a frame received over the WS", async () => {
@@ -705,7 +696,9 @@ describe("UniclipClient presence", () => {
     const before = rosters.length;
     // Access the data channel directly via the private PeerLink.channel field.
     const ch = (b as any).peer?.channel;
-    ch?.onmessage?.({ data: JSON.stringify(presenceFrame) });
+    expect(ch).toBeTruthy();
+    expect(ch.onmessage).toBeTruthy();
+    ch.onmessage!({ data: JSON.stringify(presenceFrame) });
     await new Promise((r) => setTimeout(r, 20));
     // No new roster entry for A (the p2p-delivered presence was dropped).
     expect(rosters.slice(before).some((r: any) => r.some((d: any) => d.id === "A"))).toBe(false);

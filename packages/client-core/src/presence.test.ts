@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import { deriveKey } from "@uniclip/crypto";
 import { PresenceManager, type Device, type PresenceManagerOptions } from "./presence";
