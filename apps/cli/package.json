@@ -8,12 +8,10 @@
     "dev": "tsx src/cli.tsx",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "lint": "eslint ."
+    "test": "vitest run"
   },
   "dependencies": {
     "@uniclip/client-core": "workspace:*",
-    "@uniclip/protocol": "workspace:*",
     "@uniclip/room-code": "workspace:*",
     "clipboardy": "^4.0.0",
     "ink": "^5.0.1",

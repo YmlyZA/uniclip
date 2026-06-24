@@ -7,6 +7,7 @@ import { PairScreen } from "./components/PairScreen";
 import { Footer } from "./components/Footer";
 import { copyToClipboard } from "./clipboard";
 
+// Mirrors the web app's 32 KB text cap (aligned to @uniclip/protocol MAX_FRAME_BYTES = 64 KB).
 const MAX_TEXT_BYTES = 32 * 1024;
 
 type Item = { id: string; text: string; ts: number; mine: boolean };

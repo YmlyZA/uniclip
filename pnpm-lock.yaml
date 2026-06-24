@@ -20,9 +20,6 @@ importers:
       '@uniclip/client-core':
         specifier: workspace:*
         version: link:../../packages/client-core
-      '@uniclip/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@uniclip/room-code':
         specifier: workspace:*
         version: link:../../packages/room-code
