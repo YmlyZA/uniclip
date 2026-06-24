@@ -9,7 +9,7 @@ import { parseArgs } from "./args";
 export { parseArgs } from "./args";
 
 async function main() {
-  const { roomUrl: arg, relay, name } = parseArgs(process.argv.slice(2));
+  const { roomUrl: arg, relay, name, relayOnly } = parseArgs(process.argv.slice(2));
   let roomUrl: string;
   if (arg) {
     if (!parseRoomUrl(arg)) {
@@ -26,7 +26,7 @@ async function main() {
     }
   }
   const qr = await asciiQr(roomUrl);
-  const client = makeClient({ roomUrl, ...(name ? { deviceName: name } : {}) });
+  const client = makeClient({ roomUrl, relayOnly, ...(name ? { deviceName: name } : {}) });
   const { waitUntilExit } = render(
     <App
       client={client as any}

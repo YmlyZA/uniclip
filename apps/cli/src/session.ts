@@ -1,6 +1,7 @@
 import { UniclipClient } from "@uniclip/client-core";
 import { generateModeARoom } from "@uniclip/room-code";
 import { disabledPeer } from "./disabled-peer";
+import { weriftPeer } from "./werift-peer";
 
 // Room URL (http/https origin) → the ws(s) base UniclipClient connects to.
 export function relayBaseFromUrl(roomUrl: string): string {
@@ -26,12 +27,18 @@ export async function createRoom(
   return { roomUrl: `${base}/r/${roomId}#${secret}` };
 }
 
-// Build a relay-only UniclipClient (P2P disabled).
-export function makeClient(opts: { roomUrl: string; deviceName?: string }): UniclipClient {
+// The WebRTC factory for a session: real werift by default, the never-opening
+// stub when the user forces relay-only.
+export function peerFactory(relayOnly: boolean): (config: RTCConfiguration) => RTCPeerConnection {
+  return relayOnly ? disabledPeer : weriftPeer;
+}
+
+// Build a UniclipClient. P2P uses werift unless relayOnly forces the relay.
+export function makeClient(opts: { roomUrl: string; deviceName?: string; relayOnly?: boolean }): UniclipClient {
   return new UniclipClient({
     roomUrl: opts.roomUrl,
     relayBase: relayBaseFromUrl(opts.roomUrl),
-    createConnection: disabledPeer,
+    createConnection: peerFactory(opts.relayOnly ?? false),
     ...(opts.deviceName ? { deviceName: opts.deviceName } : {}),
   });
 }
