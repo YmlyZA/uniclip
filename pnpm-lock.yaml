@@ -20,6 +20,9 @@ importers:
       '@uniclip/client-core':
         specifier: workspace:*
         version: link:../../packages/client-core
+      '@uniclip/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@uniclip/room-code':
         specifier: workspace:*
         version: link:../../packages/room-code
@@ -41,6 +44,9 @@ importers:
       werift:
         specifier: ^0.23.0
         version: 0.23.0
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -51,6 +57,9 @@ importers:
       '@types/react':
         specifier: ^18.3.3
         version: 18.3.31
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@uniclip/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig
@@ -1296,6 +1305,9 @@ packages:
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.60.0':
     resolution: {integrity: sha512-QYb/sa74/s7OKMbACMjrYnGspj9Hs5YI5aaffSL65UfeBUzVzBJfVo3oWSpbzPurvm7yaCCo2Lk7lVj610HqKw==}
@@ -3536,6 +3548,10 @@ snapshots:
       csstype: 3.2.3
 
   '@types/trusted-types@2.0.7': {}
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.20.0
 
   '@typescript-eslint/eslint-plugin@8.60.0(@typescript-eslint/parser@8.60.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
