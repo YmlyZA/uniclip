@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { relayBaseFromUrl, createRoom } from "./session";
+import { relayBaseFromUrl, createRoom, peerFactory } from "./session";
 import { disabledPeer } from "./disabled-peer";
+import { weriftPeer } from "./werift-peer";
 import { MODE_A_SECRET_ALPHABET, MODE_A_SECRET_LEN } from "@uniclip/room-code";
 
 
@@ -36,5 +37,16 @@ describe("disabledPeer", () => {
     const ch = pc.createDataChannel("uniclip");
     expect(ch.readyState).toBe("connecting"); // never 'open'
     expect(() => ch.send("x")).not.toThrow();
+  });
+});
+
+describe("peerFactory", () => {
+  it("defaults to weriftPeer (real P2P)", () => {
+    expect(peerFactory(false)).toBe(weriftPeer);
+  });
+  it("returns the never-opening disabledPeer when relay-only", () => {
+    expect(peerFactory(true)).toBe(disabledPeer);
+    const ch = peerFactory(true)({ iceServers: [] }).createDataChannel("uniclip");
+    expect(ch.readyState).toBe("connecting"); // never opens → forces relay
   });
 });
