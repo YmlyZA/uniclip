@@ -93,4 +93,32 @@ describe("signaling fan-out", () => {
     expect(closed).toBe(false); // 60 > clip limit (20) but < signal limit (200)
     a.ws.close();
   });
+
+  it("fans out presence to the other peer, never replays it, and uses the signal budget", async () => {
+    const id = await mintRoom();
+    const a = await open(`${baseWs}/ws/${id}`);
+    const b = await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 30));
+    a.ws.send(JSON.stringify({ type: "presence", iv: "AAAA", ciphertext: "QUFB" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(b.messages.some((m) => m.type === "presence" && m.ciphertext === "QUFB")).toBe(true);
+    expect(a.messages.some((m) => m.type === "presence")).toBe(false); // not echoed
+    const c = await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(c.messages.some((m) => m.type === "presence")).toBe(false); // not buffered
+    a.ws.close(); b.ws.close(); c.ws.close();
+  });
+
+  it("bills presence to the signalLimiter, not the clip limiter", async () => {
+    const id = await mintRoom();
+    const a = await open(`${baseWs}/ws/${id}`);
+    await open(`${baseWs}/ws/${id}`);
+    await new Promise((r) => setTimeout(r, 20));
+    let closed = false;
+    a.ws.onclose = () => (closed = true);
+    for (let i = 0; i < 60; i++) a.ws.send(JSON.stringify({ type: "presence", iv: "AAAA", ciphertext: "QUFB" }));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(closed).toBe(false); // 60 > clip limit (20), < signal limit (200)
+    a.ws.close();
+  });
 });
