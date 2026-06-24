@@ -9,6 +9,7 @@
   import DropOverlay from "../components/drop-overlay.svelte";
   import SyncToggle from "../components/sync-toggle.svelte";
   import Toaster from "../components/toast.svelte";
+  import { defaultDeviceName } from "../lib/device-name";
   import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
   import { PersistedItems, EphemeralStore, type Item, type ItemStore } from "../lib/persist";
   import { EPHEMERAL_TTL_MS, ExpiryScheduler } from "../lib/ephemeral";
@@ -30,6 +31,15 @@
   const secretFrag = $derived(room.mode === "A" ? `#${room.secret}` : "");
   const shareUrl = $derived(`${httpBase}/r/${room.routingId}${secretFrag}`);
   const syncHint = "On phones, keep this tab in front — background copies can't be read.";
+
+  function deviceId(): string {
+    const k = "uniclip.deviceId";
+    let id = sessionStorage.getItem(k);
+    if (!id) { id = crypto.randomUUID(); sessionStorage.setItem(k, id); }
+    return id;
+  }
+  let deviceName = $state(localStorage.getItem("uniclip.deviceName") || defaultDeviceName());
+  let roster = $state<{ id: string; name: string; self: boolean }[]>([]);
 
   let client = $state<UniclipClient | null>(null);
   let items = $state<Item[]>([]);
@@ -62,6 +72,8 @@
     const c = new UniclipClient({
       roomUrl,
       relayBase,
+      deviceId: deviceId(),
+      deviceName,
       ...(forceRelay
         ? {
             iceServers: [],
@@ -95,6 +107,7 @@
     client = c;
     c.on("status", (s) => (status = s));
     c.on("peer", (n) => (peerCount = n));
+    c.on("presence", (r) => (roster = r));
     c.on("transport", (v) => (transport = v));
     c.on("room", (info) => {
       backfillOn = info.backfill;
@@ -292,6 +305,12 @@
     }
   }
 
+  function renameDevice(name: string) {
+    deviceName = name;
+    localStorage.setItem("uniclip.deviceName", name);
+    client?.setDeviceName(name);
+  }
+
   function endRoom() {
     persist?.clear();
     client?.disconnect();
@@ -317,10 +336,12 @@
     {transport}
     ephemeral={ephemeralOn}
     syncing={watching}
+    {roster}
     onToggleSync={toggleWatch}
     onShare={() => (showShare = true)}
     onClear={clearHistory}
     onEnd={endRoom}
+    onRenameDevice={renameDevice}
   />
 
   {#if keyError}

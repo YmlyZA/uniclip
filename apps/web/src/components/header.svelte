@@ -3,6 +3,9 @@
   import StatusPill from "./status-pill.svelte";
   import ModeChip from "./mode-chip.svelte";
   import ThemeToggle from "./theme-toggle.svelte";
+  import RosterPopover from "./roster-popover.svelte";
+
+  type Device = { id: string; name: string; self: boolean };
 
   let {
     roomId,
@@ -12,10 +15,12 @@
     transport = "relay",
     ephemeral = false,
     syncing = false,
+    roster = [],
     onToggleSync = () => {},
     onShare,
     onClear,
     onEnd,
+    onRenameDevice = () => {},
   }: {
     roomId: string;
     mode: "A" | "B";
@@ -24,16 +29,19 @@
     transport?: "p2p" | "relay";
     ephemeral?: boolean;
     syncing?: boolean;
+    roster?: Device[];
     onToggleSync?: () => void;
     onShare: () => void;
     onClear: () => void;
     onEnd: () => void;
+    onRenameDevice?: (name: string) => void;
   } = $props();
 
   let menuOpen = $state(false);
+  let showRoster = $state(false);
 </script>
 
-<svelte:window onclick={() => (menuOpen = false)} />
+<svelte:window onclick={() => { menuOpen = false; showRoster = false; }} />
 
 <header
   class="sticky top-0 z-30 border-b border-border bg-bg/80 px-4 py-3 backdrop-blur-md sm:px-6"
@@ -84,14 +92,29 @@
       </button>
 
       <StatusPill {status} />
-      <span class="inline-flex items-center gap-1 text-xs text-muted" title="Devices online">
-        <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
-          <circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.7" />
-          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-          <path d="M16 6a3 3 0 0 1 0 5.5M16.5 19a5.5 5.5 0 0 0-2-4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
-        </svg>
-        {peerCount}
-      </span>
+      <div class="relative">
+        <button
+          type="button"
+          onclick={(e) => { e.stopPropagation(); showRoster = !showRoster; }}
+          class="inline-flex items-center gap-1 rounded-field px-1.5 py-1 text-xs text-muted transition hover:bg-surface-2 hover:text-text"
+          title="Connected devices"
+          aria-label="Connected devices"
+          aria-haspopup="true"
+          aria-expanded={showRoster}
+        >
+          <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
+            <circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.7" />
+            <path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+            <path d="M16 6a3 3 0 0 1 0 5.5M16.5 19a5.5 5.5 0 0 0-2-4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+          {peerCount}
+        </button>
+        {#if showRoster}
+          <div class="absolute right-0 z-40 mt-2" style="animation: item-arrive 0.16s ease-out">
+            <RosterPopover {roster} onRename={(name) => { onRenameDevice(name); }} onClose={() => (showRoster = false)} />
+          </div>
+        {/if}
+      </div>
       <span
         data-testid="transport"
         class="rounded-field px-2 py-0.5 text-[11px] {transport === 'p2p' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-faint'}"
