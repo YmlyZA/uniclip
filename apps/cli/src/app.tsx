@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import { Box, Text, useApp, useStdin } from "ink";
+import { useEffect, useState } from "react";
+import { Box, Text, useApp, useInput } from "ink";
 import { Header } from "./components/Header";
 import { ClipList } from "./components/ClipList";
 import { Composer } from "./components/Composer";
@@ -31,7 +31,6 @@ export function App({
   copy?: (t: string) => Promise<boolean>;
 }) {
   const app = useApp();
-  const { stdin } = useStdin();
   const routingId = (() => {
     try {
       return new URL(roomUrl).pathname.split("/r/")[1] ?? "?";
@@ -47,12 +46,8 @@ export function App({
   const [composing, setComposing] = useState(true);
   const [note, setNote] = useState("");
 
-  // Keep a ref to composing/items/selected so the stdin handler sees current values
-  const stateRef = useRef({ composing, items, selected, input });
-  stateRef.current = { composing, items, selected, input };
-
-  // Register client handlers and connect synchronously (useLayoutEffect fires during commit)
-  useLayoutEffect(() => {
+  // Register client handlers and connect on mount; disconnect on unmount.
+  useEffect(() => {
     client.on("status", (s: string) =>
       setStatus(s === "connected" ? "secure channel" : s),
     );
@@ -68,64 +63,51 @@ export function App({
     return () => client.disconnect();
   }, [client]);
 
-  // Register keyboard handler synchronously via useLayoutEffect + raw stdin
-  useLayoutEffect(() => {
-    if (!stdin) return;
-    const handleData = (data: string | Buffer) => {
-      const ch = typeof data === "string" ? data : data.toString("utf8");
-      const ESC = "\x1B";
-      const isEscape = ch === ESC;
-      const isCtrlC = ch === "\x03";
-      const isReturn = ch === "\r" || ch === "\n";
-      const isUp = ch === "\x1B[A";
-      const isDown = ch === "\x1B[B";
-
-      const { composing: c, items: its, selected: sel, input: inp } = stateRef.current;
-
-      if (isCtrlC) {
-        onExit();
-        app.exit();
-        return;
-      }
-
-      if (c) {
-        // composing mode — only handle Esc; typing is handled by TextInput
-        if (isEscape) setComposing(false);
-        return;
-      }
-
-      // list-navigation mode
-      if (ch === "q") {
-        onExit();
-        app.exit();
-        return;
-      }
-      if (isEscape) {
-        setComposing(true);
-        return;
-      }
-      if (isUp) {
-        setSelected((s) => Math.max(0, s - 1));
-        return;
-      }
-      if (isDown) {
-        setSelected((s) => Math.min(its.length - 1, s + 1));
-        return;
-      }
-      if (ch === "c" || isReturn) {
-        const it = its[sel];
-        if (it)
-          void copy(it.text).then((ok) =>
-            setNote(ok ? "Copied to clipboard" : "Clipboard unavailable"),
-          );
-      }
+  // Ink's useInput handles raw mode, ANSI parsing, and cleanup automatically.
+  useInput((inp, key) => {
+    const quit = () => {
+      client.disconnect();
+      onExit();
+      app.exit();
     };
 
-    stdin.on("data", handleData);
-    return () => {
-      stdin.off("data", handleData);
-    };
-  }, [stdin, app, onExit, copy]);
+    if (key.ctrl && inp === "c") {
+      quit();
+      return;
+    }
+
+    if (composing) {
+      // In compose mode only intercept Esc; everything else goes to TextInput.
+      if (key.escape) setComposing(false);
+      return;
+    }
+
+    // Navigate mode
+    if (key.upArrow) {
+      setSelected((s) => Math.max(0, s - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setSelected((s) => Math.min(items.length - 1, s + 1));
+      return;
+    }
+    if (inp === "c" || key.return) {
+      const it = items[selected];
+      if (it)
+        void copy(it.text).then((ok) =>
+          setNote(ok ? "Copied to clipboard" : "Clipboard unavailable"),
+        );
+      return;
+    }
+    if (key.escape) {
+      setComposing(true);
+      return;
+    }
+    if (inp === "q") {
+      quit();
+      return;
+    }
+  });
 
   const over = Buffer.byteLength(input, "utf8") > MAX_TEXT_BYTES;
 
