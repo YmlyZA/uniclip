@@ -3,6 +3,7 @@ import { render } from "ink-testing-library";
 import { Header } from "./Header";
 import { ClipList } from "./ClipList";
 import { PairScreen } from "./PairScreen";
+import { Composer } from "./Composer";
 
 it("Header shows routingId, Mode A, status and peer count", () => {
   const { lastFrame } = render(<Header routingId="abc123" status="secure channel" peerCount={2} />);
@@ -30,4 +31,20 @@ it("PairScreen shows the URL and the QR block", () => {
   const f = lastFrame()!;
   expect(f).toContain("abc123");
   expect(f).toContain("█");
+});
+
+it("Composer shows the over-limit warning when over=true", () => {
+  const { lastFrame } = render(
+    <Composer value="x" onChange={() => {}} onSubmit={() => {}} over={true} />
+  );
+  const f = lastFrame()!;
+  expect(f).toContain("32 KB");
+});
+
+it("Composer does not show the over-limit warning when over=false", () => {
+  const { lastFrame } = render(
+    <Composer value="x" onChange={() => {}} onSubmit={() => {}} over={false} />
+  );
+  const f = lastFrame()!;
+  expect(f).not.toContain("Too large");
 });
