@@ -3,12 +3,6 @@ import { relayBaseFromUrl, createRoom } from "./session";
 import { disabledPeer } from "./disabled-peer";
 import { MODE_A_SECRET_ALPHABET, MODE_A_SECRET_LEN } from "@uniclip/room-code";
 
-// Build the regex character class from the real alphabet so the test stays
-// correct even if the alphabet changes (e.g. it includes '-' and '_').
-const escapedAlphabet = MODE_A_SECRET_ALPHABET.replace(/[-\\]]/g, "\\$&");
-const secretPattern = new RegExp(
-  `^http:\\/\\/localhost:3000\\/r\\/abc123#[${escapedAlphabet}]{${MODE_A_SECRET_LEN}}$`,
-);
 
 describe("relayBaseFromUrl", () => {
   it("maps https→wss and http→ws, preserving host/port", () => {
@@ -25,7 +19,10 @@ describe("createRoom", () => {
       "http://localhost:3000/api/room",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(roomUrl).toMatch(secretPattern);
+    expect(roomUrl.startsWith("http://localhost:3000/r/abc123#")).toBe(true);
+    const secret = roomUrl.slice(roomUrl.indexOf("#") + 1);
+    expect(secret).toHaveLength(MODE_A_SECRET_LEN);
+    expect([...secret].every((c) => MODE_A_SECRET_ALPHABET.includes(c))).toBe(true);
   });
   it("throws on a non-ok response", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 429 })) as unknown as typeof fetch;
