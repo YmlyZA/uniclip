@@ -8,7 +8,8 @@ import { weriftPeer } from "./werift-peer";
 // no browser. This is the gate: if this fails, the adapter is wrong, not the wiring.
 it("two PeerLinks over werift open a channel and exchange a clip frame", async () => {
   let a!: PeerLink, b!: PeerLink;
-  const received: string[] = [];
+  const recvByB: string[] = [];
+  const recvByA: string[] = [];
   let aOpen = false, bOpen = false;
 
   // Deliver async so we never re-enter handleSignal synchronously.
@@ -18,13 +19,13 @@ it("two PeerLinks over werift open a channel and exchange a clip frame", async (
   a = new PeerLink({
     iceServers: [], createConnection: weriftPeer,
     signal: send(() => b),
-    onOpen: () => (aOpen = true), onClose: () => {}, onMessage: () => {},
+    onOpen: () => (aOpen = true), onClose: () => {}, onMessage: (d) => recvByA.push(d),
   });
   b = new PeerLink({
     iceServers: [], createConnection: weriftPeer,
     signal: send(() => a),
     onOpen: () => (bOpen = true),
-    onClose: () => {}, onMessage: (d) => received.push(d),
+    onClose: () => {}, onMessage: (d) => recvByB.push(d),
   });
 
   a.start();
@@ -37,17 +38,29 @@ it("two PeerLinks over werift open a channel and exchange a clip frame", async (
     }, 50);
   });
 
-  const frame = JSON.stringify({ type: "clip", msgId: "x", iv: "i", ciphertext: "c", ts: 1 });
-  // Send from whichever side ended up the initiator/responder — both channels are open.
-  expect(a.send(frame)).toBe(true);
+  // A→B. The DataChannel is full-duplex, so direction is independent of which
+  // side won the rtc-hello initiator role — sending from A always reaches B.
+  const frameAB = JSON.stringify({ type: "clip", msgId: "ab", iv: "i", ciphertext: "c", ts: 1 });
+  expect(a.send(frameAB)).toBe(true);
   await new Promise<void>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("frame not received")), 5000);
+    const t = setTimeout(() => reject(new Error("A→B frame not received")), 5000);
     const check = setInterval(() => {
-      if (received.length > 0) { clearInterval(check); clearTimeout(t); resolve(); }
+      if (recvByB.length > 0) { clearInterval(check); clearTimeout(t); resolve(); }
     }, 50);
   });
+  expect(recvByB[0]).toBe(frameAB);
 
-  expect(received[0]).toBe(frame);
+  // B→A, proving the channel carries both directions.
+  const frameBA = JSON.stringify({ type: "clip", msgId: "ba", iv: "i", ciphertext: "c", ts: 2 });
+  expect(b.send(frameBA)).toBe(true);
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("B→A frame not received")), 5000);
+    const check = setInterval(() => {
+      if (recvByA.length > 0) { clearInterval(check); clearTimeout(t); resolve(); }
+    }, 50);
+  });
+  expect(recvByA[0]).toBe(frameBA);
+
   a.close();
   b.close();
 }, 25000);
