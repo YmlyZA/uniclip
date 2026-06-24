@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { defaultDeviceName } from "./device-name";
 
 afterEach(() => vi.unstubAllGlobals());
