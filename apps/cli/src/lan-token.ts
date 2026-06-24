@@ -11,6 +11,8 @@ export function formatLanToken(room: { routingId: string; secret: string }): str
 export function parseLanToken(s: string): { routingId: string; secret: string } | null {
   if (!s.startsWith(SCHEME)) return null;
   const rest = s.slice(SCHEME.length);
+  // Split on the FIRST "#": everything after it is the secret (mirrors URL.hash
+  // semantics). A secret may itself contain "#", so do not use lastIndexOf.
   const hash = rest.indexOf("#");
   if (hash < 0) return null;
   const routingId = rest.slice(0, hash);

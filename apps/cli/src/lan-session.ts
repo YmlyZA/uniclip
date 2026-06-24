@@ -45,5 +45,8 @@ export async function joinLan(
     iceServers: [], createConnection: weriftPeer,
     ...(opts.deviceName ? { deviceName: opts.deviceName } : {}),
   });
+  // dispose only disconnects the client: bonjourDiscovery.discover() already
+  // destroys its browse socket on resolve/timeout, so there is no mDNS handle
+  // for the joiner to stop here (unlike the host's long-lived advertisement).
   return { client, roomUrl, dispose: () => client.disconnect() };
 }
