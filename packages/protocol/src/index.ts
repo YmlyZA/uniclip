@@ -118,6 +118,13 @@ export const RtcHelloSchema = z
   .object({ type: z.literal("rtc-hello"), from: z.string().max(64) })
   .strict();
 
+// Encrypted device-presence announce (named roster). Opaque to the relay
+// (fanned out, never buffered). Plaintext under `ciphertext` is
+// JSON {id,name}, encrypted with the room key under AAD `presence:${routingId}`.
+export const PresenceFrameSchema = z
+  .object({ type: z.literal("presence"), iv: Base64, ciphertext: Base64 })
+  .strict();
+
 export const HelloFrameSchema = z
   .object({
     type: z.literal("hello"),
@@ -182,6 +189,7 @@ export const ServerFrameSchema = z.discriminatedUnion("type", [
   SdpFrameSchema,
   IceFrameSchema,
   RtcHelloSchema,
+  PresenceFrameSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 
@@ -198,6 +206,7 @@ export const ClientFrameSchema = z.discriminatedUnion("type", [
   SdpFrameSchema,
   IceFrameSchema,
   RtcHelloSchema,
+  PresenceFrameSchema,
 ]);
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
 

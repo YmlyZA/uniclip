@@ -226,3 +226,15 @@ describe("rtc-hello identity frame", () => {
     expect(() => ClientFrameSchema.parse({ type: "rtc-hello", from, extra: 1 })).toThrow();
   });
 });
+
+describe("presence frame", () => {
+  it("accepts a valid presence frame on both unions", () => {
+    const f = { type: "presence", iv: "AAAA", ciphertext: "QUFB" };
+    expect(ClientFrameSchema.parse(f)).toBeDefined();
+    expect(ServerFrameSchema.parse(f)).toBeDefined();
+  });
+  it("rejects missing fields and extra keys", () => {
+    expect(() => ClientFrameSchema.parse({ type: "presence", iv: "AAAA" })).toThrow();
+    expect(() => ClientFrameSchema.parse({ type: "presence", iv: "AAAA", ciphertext: "QUFB", x: 1 })).toThrow();
+  });
+});
