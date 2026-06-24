@@ -22,17 +22,18 @@ describe("App", () => {
     const { lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
     await tick();
     client.emit("clip", "hello from peer", 123, "m1");
-    await tick();
-    expect(lastFrame()).toContain("hello from peer");
+    // Poll the rendered frame: one setTimeout(0) tick is not always enough for
+    // React's state update to flush through Ink's renderer under CI load.
+    await vi.waitFor(() => expect(lastFrame()).toContain("hello from peer"));
   });
 
   it("copies the selected clip to the clipboard on 'c'", async () => {
     const client = fakeClient();
     const copy = vi.fn(async () => true);
-    const { stdin } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} copy={copy} />);
+    const { stdin, lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} copy={copy} />);
     await tick();
     client.emit("clip", "copy me", 1, "m1");
-    await tick();
+    await vi.waitFor(() => expect(lastFrame()).toContain("copy me")); // ensure the row rendered before navigating
     stdin.write("\x1B"); // Esc → switch from composing to list-navigation
     await tick();
     stdin.write("c");   // copy selected
