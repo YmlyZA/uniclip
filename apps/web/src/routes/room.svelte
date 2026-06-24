@@ -19,6 +19,8 @@
   } from "../lib/transfers";
   import { tooLarge, readFileBytes, MAX_FILE_MB } from "../lib/file-send";
   import { toast } from "../lib/toast";
+  import { historyText, downloadTextFile } from "../lib/export";
+  import { matchesQuery } from "../lib/clip-content";
 
   let { room }: { room: ParsedRoom } = $props();
 
@@ -55,6 +57,7 @@
   let backfillOn = $state(false);
   let keyError = $state(false);
   let ephemeralOn = $state(false);
+  let query = $state("");
   let persist: ItemStore | null = null;
   let expiry: ExpiryScheduler | null = null;
   const watcher = new ClipboardWatcher({ intervalMs: 1000 });
@@ -284,6 +287,21 @@
     client?.delete(id);
   }
 
+  async function pinItem(id: string, pinned: boolean) {
+    await persist?.setPinned(id, pinned);
+    items = items.map((i) => (i.id === id ? { ...i, pinned } : i));
+  }
+
+  function visibleForExport() {
+    return items.filter((i) => matchesQuery(i.text, query));
+  }
+  async function copyAll() {
+    try { await navigator.clipboard.writeText(historyText(visibleForExport())); toast("History copied", "info", 1400); } catch {}
+  }
+  function downloadAll() {
+    downloadTextFile("uniclip-history.txt", historyText(visibleForExport()));
+  }
+
   function clearHistory() {
     items = [];
     expiry?.clear();
@@ -392,7 +410,22 @@
 
     <!-- List -->
     <section class="min-w-0 flex-1 pb-44 lg:pb-0">
-      <ItemsList {items} {transfers} syncing={watching} onCopy={copy} {onDelete} onAccept={acceptTransfer} onDecline={declineTransfer} onCancelTransfer={cancelTransfer} />
+      <div class="mb-2.5 flex items-center gap-2">
+        <input
+          bind:value={query}
+          type="search"
+          placeholder="Search items"
+          aria-label="Search items"
+          class="h-9 min-w-0 flex-1 rounded-field border border-border bg-surface px-3 text-sm text-text placeholder:text-faint focus:border-border-strong focus:outline-none"
+        />
+        <button type="button" onclick={copyAll} title="Copy all" aria-label="Copy all items" class="grid h-9 w-9 shrink-0 place-items-center rounded-field border border-border text-muted transition hover:bg-surface-2 hover:text-text">
+          <svg viewBox="0 0 24 24" fill="none" class="h-[18px] w-[18px]" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M5 15V5a2 2 0 0 1 2-2h8" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <button type="button" onclick={downloadAll} title="Download .txt" aria-label="Download history as text" class="grid h-9 w-9 shrink-0 place-items-center rounded-field border border-border text-muted transition hover:bg-surface-2 hover:text-text">
+          <svg viewBox="0 0 24 24" fill="none" class="h-[18px] w-[18px]" aria-hidden="true"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <ItemsList {items} {transfers} {query} syncing={watching} onCopy={copy} {onDelete} onPin={pinItem} onAccept={acceptTransfer} onDecline={declineTransfer} onCancelTransfer={cancelTransfer} />
     </section>
   </main>
 
