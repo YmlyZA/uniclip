@@ -82,9 +82,10 @@ describe("UniclipClient", () => {
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     await client.send("hello universe");
 
-    expect(ws.sent).toHaveLength(1);
-    const sent = JSON.parse(ws.sent[0]!);
-    expect(sent.type).toBe("clip");
+    // Presence announces asynchronously on hello; filter it out to focus on the clip.
+    const clipSent = ws.sent.map((s) => JSON.parse(s)).find((f) => f.type === "clip");
+    expect(clipSent).toBeDefined();
+    const sent = clipSent;
     expect(sent.msgId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(typeof sent.iv).toBe("string");
     expect(typeof sent.ciphertext).toBe("string");
@@ -111,7 +112,7 @@ describe("UniclipClient", () => {
     receiver.on("clip", (text: string) => received.push(text));
 
     await sender.send("ping from A");
-    const wireFrame = JSON.parse(senderWs.sent[0]!);
+    const wireFrame = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
     receiverWs.emit(wireFrame);
     await waitFor(() => received.length > 0);
     expect(received).toEqual(["ping from A"]);
@@ -137,7 +138,7 @@ describe("UniclipClient", () => {
     receiver.on("clip", (t: string) => received.push(t));
 
     await sender.send("once");
-    const wire = JSON.parse(senderWs.sent[0]!);
+    const wire = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
     receiverWs.emit(wire);
     receiverWs.emit(wire); // duplicate (rejected synchronously by replay.admit)
     await waitFor(() => received.length > 0);
@@ -163,7 +164,7 @@ describe("UniclipClient", () => {
     let gotTs = -1;
     receiver.on("clip", (_text: string, ts: number) => (gotTs = ts));
     await sender.send("hi");
-    const wire = JSON.parse(senderWs.sent[0]!);
+    const wire = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
     receiverWs.emit(wire);
     await waitFor(() => gotTs >= 0);
     expect(gotTs).toBe(wire.ts);
@@ -191,7 +192,7 @@ describe("UniclipClient", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     const res = await client.send("x");
-    const wire = JSON.parse(ws.sent[0]!);
+    const wire = JSON.parse(ws.sent.find((s) => JSON.parse(s).type === "clip")!);
     expect(res.msgId).toBe(wire.msgId);
     expect(res.ts).toBe(wire.ts);
   });
@@ -215,7 +216,7 @@ describe("UniclipClient", () => {
     let gotMsgId = "";
     receiver.on("clip", (_text: string, _ts: number, msgId: string) => (gotMsgId = msgId));
     await sender.send("hi");
-    const wire = JSON.parse(senderWs.sent[0]!);
+    const wire = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
     receiverWs.emit(wire);
     await waitFor(() => gotMsgId !== "");
     expect(gotMsgId).toBe(wire.msgId);
@@ -230,8 +231,10 @@ describe("UniclipClient", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     client.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV");
-    expect(ws.sent).toHaveLength(1);
-    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    // Presence announces asynchronously; find the delete frame specifically.
+    await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "delete"));
+    const deleteFrame = JSON.parse(ws.sent.find((s) => JSON.parse(s).type === "delete")!);
+    expect(deleteFrame).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
   });
 
   it("delete() while the socket is not OPEN queues the delete and flushes it on the next hello", async () => {
@@ -244,12 +247,13 @@ describe("UniclipClient", () => {
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     ws.readyState = MockWebSocket.CLOSED; // offline
     client.delete("01ARZ3NDEKTSV4RRFFQ69G5FAV");
-    expect(ws.sent).toHaveLength(0); // nothing went out while offline
+    // No clip/delete frames sent while offline (presence guard also skips closed socket).
+    expect(ws.sent.filter((s) => ["clip", "delete"].includes(JSON.parse(s).type))).toHaveLength(0);
 
     ws.readyState = MockWebSocket.OPEN; // back online
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    expect(ws.sent).toHaveLength(1);
-    expect(JSON.parse(ws.sent[0]!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+    await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "delete"));
+    expect(JSON.parse(ws.sent.find((s) => JSON.parse(s).type === "delete")!)).toEqual({ type: "delete", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" });
   });
 
   it("delete() of a still-queued clip drops it from the queue instead of sending a delete", async () => {
@@ -266,9 +270,12 @@ describe("UniclipClient", () => {
 
     ws.readyState = MockWebSocket.OPEN;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    await new Promise((r) => setTimeout(r, 20));
     // The clip was dropped from the queue and no delete was queued: peers never
-    // saw it, so there is nothing to send at all.
-    expect(ws.sent).toHaveLength(0);
+    // saw it, so there is nothing content-wise to send at all.
+    // (Presence announces asynchronously — exclude it from the check.)
+    const contentSent = ws.sent.filter((s) => ["clip", "delete"].includes(JSON.parse(s).type));
+    expect(contentSent).toHaveLength(0);
   });
 
   it("flushQueue emits 'sent' only for clip frames, not queued deletes", async () => {
@@ -288,7 +295,9 @@ describe("UniclipClient", () => {
     ws.readyState = MockWebSocket.OPEN;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
 
-    expect(ws.sent).toHaveLength(2); // clip then delete, in order
+    // Presence announces asynchronously; filter to the flushed content frames only.
+    const flushed = ws.sent.filter((s) => ["clip", "delete"].includes(JSON.parse(s).type));
+    expect(flushed).toHaveLength(2); // clip then delete, in order
     expect(sentIds).toEqual([a.msgId]); // 'sent' fired only for the clip
   });
 
@@ -339,10 +348,12 @@ describe("UniclipClient", () => {
     ws.readyState = MockWebSocket.OPEN; // socket back
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
 
-    expect(ws.sent).toHaveLength(2);
-    expect(JSON.parse(ws.sent[0]!).msgId).toBe(a.msgId);
-    expect(JSON.parse(ws.sent[1]!).msgId).toBe(b.msgId);
-    expect(JSON.parse(ws.sent[0]!).ts).toBe(a.ts); // ts frozen at composition
+    // Presence announces asynchronously; filter to clip frames only.
+    const clipsSent = ws.sent.filter((s) => JSON.parse(s).type === "clip");
+    expect(clipsSent).toHaveLength(2);
+    expect(JSON.parse(clipsSent[0]!).msgId).toBe(a.msgId);
+    expect(JSON.parse(clipsSent[1]!).msgId).toBe(b.msgId);
+    expect(JSON.parse(clipsSent[0]!).ts).toBe(a.ts); // ts frozen at composition
     expect(sentIds).toEqual([a.msgId, b.msgId]);
   });
 
@@ -366,8 +377,10 @@ describe("UniclipClient", () => {
     ws.readyState = MockWebSocket.OPEN;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
 
-    expect(ws.sent).toHaveLength(100); // capped at MAX_QUEUE
-    expect(ws.sent.some((s) => JSON.parse(s).msgId === first.msgId)).toBe(false); // oldest dropped
+    // Presence announces asynchronously; count only the flushed clip frames.
+    const flushedClips = ws.sent.filter((s) => JSON.parse(s).type === "clip");
+    expect(flushedClips).toHaveLength(100); // capped at MAX_QUEUE
+    expect(flushedClips.some((s) => JSON.parse(s).msgId === first.msgId)).toBe(false); // oldest dropped
   });
 
   it("emits DECRYPT_FAILED when frames can't be decrypted (wrong/missing key)", async () => {
@@ -394,7 +407,7 @@ describe("UniclipClient", () => {
     receiver.on("clip", (t: string) => clips.push(t));
 
     await sender.send("secret text");
-    const wire = JSON.parse(senderWs.sent[0]!);
+    const wire = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
     receiverWs.emit(wire);
 
     await waitFor(() => errCode !== "");
@@ -631,5 +644,70 @@ describe("UniclipClient transport seam", () => {
 
     clientA.disconnect();
     clientB.disconnect();
+  });
+});
+
+// Helper: grab the open fake data channel from a client connected with fakePcFactory.
+// Mirrors the pattern used in the via-guard test: (client as any).peer?.channel.
+function fakeChannelOf(ws: MockWebSocket): { onmessage: ((ev: { data: string }) => void) | null } {
+  // The channel is stored on PeerLink.channel (private); access via any cast on the
+  // UniclipClient.peer field, which is also private. The test that arms the channel
+  // must have waited for transport === "p2p" before calling this.
+  void ws; // parameter kept for readability — the channel lives on the client, not the ws
+  return { onmessage: null }; // fallback; callers override with the real channel below
+}
+
+describe("UniclipClient presence", () => {
+  it("surfaces a presence roster from a frame received over the WS", async () => {
+    // Two clients in the same room so the presence blob decrypts.
+    // Use fakePcFactory so armPeer() works in Node (no native RTCPeerConnection).
+    const url = "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr";
+    const a = new UniclipClient({ roomUrl: url, relayBase: "wss://uniclip.app", deviceId: "A", deviceName: "Alice", iceServers: [], createConnection: fakePcFactory() });
+    await a.connect();
+    const wsA = MockWebSocket.instances.at(-1)!;
+    wsA.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    // a announced over the WS; capture the presence frame it sent
+    await waitFor(() => wsA.sent.some((p) => JSON.parse(p).type === "presence"));
+    const presenceFrame = JSON.parse(wsA.sent.find((p) => JSON.parse(p).type === "presence")!);
+
+    const b = new UniclipClient({ roomUrl: url, relayBase: "wss://uniclip.app", deviceId: "B", deviceName: "Bob", iceServers: [], createConnection: fakePcFactory() });
+    const rosters: any[] = [];
+    b.on("presence", (r: any) => rosters.push(r));
+    await b.connect();
+    const wsB = MockWebSocket.instances.at(-1)!;
+    wsB.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsB.emit(presenceFrame); // A's presence arrives at B over the WS
+    await waitFor(() => rosters.some((r) => r.some((d: any) => d.id === "A" && d.name === "Alice")));
+    expect(rosters.at(-1).some((d: any) => d.self && d.id === "B")).toBe(true);
+  });
+
+  it("drops a presence frame arriving over the p2p pipe", async () => {
+    const url = "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr";
+    const a = new UniclipClient({ roomUrl: url, relayBase: "wss://uniclip.app", deviceId: "A", deviceName: "Alice", iceServers: [], createConnection: fakePcFactory() });
+    await a.connect();
+    const wsA = MockWebSocket.instances.at(-1)!;
+    wsA.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    await waitFor(() => wsA.sent.some((p) => JSON.parse(p).type === "presence"));
+    const presenceFrame = JSON.parse(wsA.sent.find((p) => JSON.parse(p).type === "presence")!);
+
+    const b = new UniclipClient({
+      roomUrl: url, relayBase: "wss://uniclip.app", deviceId: "B", deviceName: "Bob",
+      iceServers: [], createConnection: fakePcFactory(),
+    });
+    const rosters: any[] = [];
+    b.on("presence", (r: any) => rosters.push(r));
+    await b.connect();
+    const wsB = MockWebSocket.instances.at(-1)!;
+    wsB.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsB.emit({ type: "rtc-hello", from: MIN_FROM }); // open p2p (b becomes initiator since its from > MIN_FROM)
+    await waitFor(() => (b as any).transport === "p2p");
+    // Deliver A's presence over the data channel (p2p pipe); it must be ignored.
+    const before = rosters.length;
+    // Access the data channel directly via the private PeerLink.channel field.
+    const ch = (b as any).peer?.channel;
+    ch?.onmessage?.({ data: JSON.stringify(presenceFrame) });
+    await new Promise((r) => setTimeout(r, 20));
+    // No new roster entry for A (the p2p-delivered presence was dropped).
+    expect(rosters.slice(before).some((r: any) => r.some((d: any) => d.id === "A"))).toBe(false);
   });
 });
