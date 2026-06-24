@@ -3,7 +3,7 @@ import { parseArgs } from "./cli";
 
 describe("parseArgs", () => {
   it("defaults relay and takes a positional room url", () => {
-    expect(parseArgs(["https://h/r/abc#sek"])).toEqual({ roomUrl: "https://h/r/abc#sek", relay: "http://localhost:3000", relayOnly: false });
+    expect(parseArgs(["https://h/r/abc#sek"])).toEqual({ roomUrl: "https://h/r/abc#sek", relay: "http://localhost:3000", relayOnly: false, lan: false });
   });
   it("reads --relay and --name", () => {
     const a = parseArgs(["--relay", "https://relay.example", "--name", "Laptop"]);
@@ -16,5 +16,9 @@ describe("parseArgs", () => {
     const a = parseArgs(["--relay-only", "https://h/r/abc#sek"]);
     expect(a.relayOnly).toBe(true);
     expect(a.roomUrl).toBe("https://h/r/abc#sek");
+  });
+  it("parses --lan (default false)", () => {
+    expect(parseArgs(["--lan"]).lan).toBe(true);
+    expect(parseArgs([]).lan).toBe(false);
   });
 });

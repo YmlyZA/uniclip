@@ -4,12 +4,44 @@ import { App } from "./app";
 import { createRoom, makeClient } from "./session";
 import { asciiQr } from "./qr";
 import { parseArgs } from "./args";
+import { startLanHost, joinLan } from "./lan-session";
+import { parseLanToken } from "./lan-token";
 
 // Re-export so tests can import { parseArgs } from "./cli" per the task spec.
 export { parseArgs } from "./args";
 
 async function main() {
-  const { roomUrl: arg, relay, name, relayOnly } = parseArgs(process.argv.slice(2));
+  const { roomUrl: arg, relay, name, relayOnly, lan } = parseArgs(process.argv.slice(2));
+
+  // Offline LAN host.
+  if (lan) {
+    const host = await startLanHost({ ...(name ? { deviceName: name } : {}) });
+    const qr = await asciiQr(host.token);
+    const { waitUntilExit } = render(
+      <App client={host.client as any} roomUrl={host.roomUrl} qr={qr} onExit={() => host.dispose()} />,
+    );
+    await waitUntilExit();
+    return;
+  }
+
+  // Offline LAN join (scanned/pasted token).
+  if (arg && parseLanToken(arg)) {
+    let joiner;
+    try {
+      joiner = await joinLan(arg, { ...(name ? { deviceName: name } : {}) });
+    } catch (e) {
+      console.error(`Couldn't find that room on this network: ${(e as Error).message}`);
+      console.error("Make sure both devices are on the same Wi-Fi/LAN.");
+      process.exit(1);
+    }
+    const { waitUntilExit } = render(
+      <App client={joiner.client as any} roomUrl={joiner.roomUrl} qr="" onExit={() => joiner.dispose()} />,
+    );
+    await waitUntilExit();
+    return;
+  }
+  // …existing relay-connected path (create-or-join via the public relay) unchanged below…
+
   let roomUrl: string;
   if (arg) {
     if (!parseRoomUrl(arg)) {
