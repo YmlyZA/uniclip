@@ -4,6 +4,7 @@ import { Header } from "./Header";
 import { ClipList } from "./ClipList";
 import { PairScreen } from "./PairScreen";
 import { Composer } from "./Composer";
+import { Transfers } from "./Transfers";
 
 it("Header shows routingId, Mode A, status and peer count", () => {
   const { lastFrame } = render(<Header routingId="abc123" status="secure channel" peerCount={2} />);
@@ -47,4 +48,14 @@ it("Composer does not show the over-limit warning when over=false", () => {
   );
   const f = lastFrame()!;
   expect(f).not.toContain("Too large");
+});
+
+it("Transfers renders a row per active transfer with direction + percent", () => {
+  const { lastFrame } = render(
+    <Transfers rows={[{ fileId: "f1", dir: "send", name: "photo.png", sent: 5, total: 10 }]} />,
+  );
+  const f = lastFrame()!;
+  expect(f).toContain("photo.png");
+  expect(f).toContain("50%");
+  expect(f).toMatch(/[↑]/);
 });

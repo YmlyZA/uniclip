@@ -92,4 +92,20 @@ describe("lan-relay", () => {
     expect(b.frames.filter((f) => f.type === "clip").length).toBe(3);
     a.ws.close(); b.ws.close();
   });
+
+  it("gives file-* frames a higher budget than clip/other frames", async () => {
+    relay = await startLanRelay({ routingId: RID, host: "127.0.0.1", frameLimit: 3, fileLimit: 6, frameWindowMs: 10_000 });
+    const a = client(relay.port); await a.ready;
+    const b = client(relay.port); await b.ready;
+    await a.waitFor(() => a.frames.some((f) => f.type === "peer-joined"));
+    // 8 clips → capped at the lower budget (3)
+    for (let i = 0; i < 8; i++) a.send({ type: "clip", msgId: ulid(i), iv: "i", ciphertext: "c", ts: i });
+    // 8 file-acks → allowed up to the higher budget (6)
+    for (let i = 0; i < 8; i++) a.send({ type: "file-ack", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", upTo: i });
+    await b.waitFor(() => b.frames.filter((f) => f.type === "file-ack").length >= 6);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(b.frames.filter((f) => f.type === "clip").length).toBe(3);
+    expect(b.frames.filter((f) => f.type === "file-ack").length).toBe(6);
+    a.ws.close(); b.ws.close();
+  });
 });
