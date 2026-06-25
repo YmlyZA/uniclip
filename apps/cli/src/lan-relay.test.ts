@@ -12,13 +12,16 @@ function client(port: number) {
   const frames: any[] = [];
   ws.on("message", (d) => frames.push(JSON.parse(d.toString("utf8"))));
   const ready = new Promise<void>((res) => ws.on("open", () => res()));
+  const closed = new Promise<number>((res) => ws.on("close", (code) => res(code)));
   const waitFor = (pred: () => boolean, ms = 2000) =>
     new Promise<void>((res, rej) => {
       const t = setTimeout(() => rej(new Error("timeout waiting on frames: " + JSON.stringify(frames))), ms);
       const i = setInterval(() => { if (pred()) { clearInterval(i); clearTimeout(t); res(); } }, 20);
     });
-  return { ws, frames, ready, waitFor, send: (o: unknown) => ws.send(JSON.stringify(o)) };
+  return { ws, frames, ready, closed, waitFor, send: (o: unknown) => ws.send(JSON.stringify(o)) };
 }
+
+const ulid = (n: number) => "01ARZ3NDEKTSV4RRFFQ69G5" + String(n).padStart(3, "0");
 
 describe("lan-relay", () => {
   it("sends a strict-schema hello on connect", async () => {
@@ -60,6 +63,33 @@ describe("lan-relay", () => {
     a.send({ type: "clip", msgId: "01ARZ3NDEKTSV4RRFFQ69G5FB0", iv: "i", ciphertext: "c", ts: 2 }); // valid, after the junk
     await b.waitFor(() => b.frames.some((f) => f.type === "clip" && f.msgId === "01ARZ3NDEKTSV4RRFFQ69G5FB0"));
     expect(b.frames.some((f) => f.type === "nonsense")).toBe(false);
+    a.ws.close(); b.ws.close();
+  });
+
+  it("caps concurrent peers: a connection past maxPeers is closed (1013)", async () => {
+    relay = await startLanRelay({ routingId: RID, host: "127.0.0.1", maxPeers: 2 });
+    const a = client(relay.port); await a.ready;
+    const b = client(relay.port); await b.ready;
+    await a.waitFor(() => a.frames.some((f) => f.type === "peer-joined"));
+    // The 3rd connection exceeds the cap → server closes it with 1013 (Try Again Later)
+    const c = client(relay.port);
+    const code = await c.closed;
+    expect(code).toBe(1013);
+    // c never received a hello, and the room stays at 2
+    expect(c.frames.some((f) => f.type === "hello")).toBe(false);
+    a.ws.close(); b.ws.close();
+  });
+
+  it("rate-limits a flooding socket: frames past the per-socket budget are dropped", async () => {
+    relay = await startLanRelay({ routingId: RID, host: "127.0.0.1", frameLimit: 3, frameWindowMs: 10_000 });
+    const a = client(relay.port); await a.ready;
+    const b = client(relay.port); await b.ready;
+    await a.waitFor(() => a.frames.some((f) => f.type === "peer-joined"));
+    // a floods 6 valid clips; only the first 3 (the budget) may be fanned to b
+    for (let i = 0; i < 6; i++) a.send({ type: "clip", msgId: ulid(i), iv: "i", ciphertext: "c", ts: i });
+    await b.waitFor(() => b.frames.filter((f) => f.type === "clip").length >= 3);
+    await new Promise((r) => setTimeout(r, 300)); // let any stragglers (there should be none) arrive — generous for loaded CI
+    expect(b.frames.filter((f) => f.type === "clip").length).toBe(3);
     a.ws.close(); b.ws.close();
   });
 });

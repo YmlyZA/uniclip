@@ -98,7 +98,7 @@ docker run --rm -p 3000:3000 uniclip:dev
 # → http://localhost:3000 serves the API, the SPA, and /api/metrics
 ```
 
-For a self-hosted VPS, see [`deploy/`](deploy/README.md): a `docker-compose.yml` that puts the relay behind [Caddy](https://caddyserver.com) for automatic HTTPS, plus a standalone Caddyfile snippet for hosts already running Caddy. **HTTPS is required off `localhost`** — the clipboard API only works in a secure context. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
+For a self-hosted VPS, see [`deploy/`](deploy/README.md): a `docker-compose.yml` that puts the relay behind [Caddy](https://caddyserver.com) for automatic HTTPS, plus a standalone Caddyfile snippet for hosts already running Caddy. **HTTPS is required off `localhost`** — the clipboard API only works in a secure context. The relay derives its per-IP `/api/room` rate limit from `x-forwarded-for`, so **run it behind a proxy that sets a trustworthy client IP** (the provided Caddy config does); exposed directly, the header is spoofable. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
 
 ## Repository layout
 

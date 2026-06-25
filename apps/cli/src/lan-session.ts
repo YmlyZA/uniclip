@@ -5,8 +5,11 @@ import { bonjourDiscovery, type Discovery } from "./mdns";
 import { formatLanToken, parseLanToken } from "./lan-token";
 import { weriftPeer } from "./werift-peer";
 
-function deviceServiceName(deviceName?: string): string {
-  return `uniclip ${(deviceName ?? "device").slice(0, 30)}`;
+// The mDNS instance name is broadcast in cleartext on the LAN, so it must NOT
+// carry the user's device name (a privacy leak). The routingId is already
+// public (it rides the TXT record) and uniquely identifies the room, so use it.
+function serviceName(routingId: string): string {
+  return `uniclip-${routingId}`;
 }
 
 // Host: mint a Mode-A room locally, run the embedded relay, advertise it over
@@ -17,7 +20,7 @@ export async function startLanHost(
   const discovery = opts.discovery ?? bonjourDiscovery();
   const { routingId, secret } = generateModeARoom();
   const relay = await startLanRelay({ routingId });
-  const ad = discovery.advertise({ routingId, port: relay.port, name: deviceServiceName(opts.deviceName) });
+  const ad = discovery.advertise({ routingId, port: relay.port, name: serviceName(routingId) });
   const roomUrl = `http://127.0.0.1:${relay.port}/r/${routingId}#${secret}`;
   const client = new UniclipClient({
     roomUrl, relayBase: `ws://127.0.0.1:${relay.port}`,
