@@ -7,6 +7,14 @@ import { join } from "node:path";
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
+// Ink renders asynchronously, and vitest runs test files in parallel — on a
+// loaded CI runner (2 cores) the React→Ink render flush can take well over
+// vi.waitFor's 1000ms default, intermittently failing render assertions. Poll
+// with a generous bound (still under the 5s test timeout so a genuine hang
+// surfaces the real assertion, not an opaque timeout).
+const waitForRender = (fn: () => void | Promise<void>) =>
+  vi.waitFor(fn, { timeout: 4000, interval: 50 });
+
 // Minimal fake UniclipClient: capture handlers, let the test drive events.
 function fakeClient() {
   const handlers: Record<string, Function[]> = {};
@@ -30,7 +38,7 @@ describe("App", () => {
     client.emit("clip", "hello from peer", 123, "m1");
     // Poll the rendered frame: one setTimeout(0) tick is not always enough for
     // React's state update to flush through Ink's renderer under CI load.
-    await vi.waitFor(() => expect(lastFrame()).toContain("hello from peer"));
+    await waitForRender(() => expect(lastFrame()).toContain("hello from peer"));
   });
 
   it("copies the selected clip to the clipboard on 'c'", async () => {
@@ -39,7 +47,7 @@ describe("App", () => {
     const { stdin, lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} copy={copy} />);
     await tick();
     client.emit("clip", "copy me", 1, "m1");
-    await vi.waitFor(() => expect(lastFrame()).toContain("copy me")); // ensure the row rendered before navigating
+    await waitForRender(() => expect(lastFrame()).toContain("copy me")); // ensure the row rendered before navigating
     stdin.write("\x1B"); // Esc → switch from composing to list-navigation
     await tick();
     stdin.write("c");   // copy selected
@@ -65,11 +73,11 @@ describe("App", () => {
     await tick();
     stdin.write("f");                    // open the send-file prompt
     await tick();
-    await vi.waitFor(() => expect(lastFrame()).toContain("Send file"));
+    await waitForRender(() => expect(lastFrame()).toContain("Send file"));
     for (const ch of join(dir, "x.txt")) stdin.write(ch); // type the path
     await tick();
     stdin.write("\r");                   // submit
-    await vi.waitFor(() => expect(client.sendFile).toHaveBeenCalled());
+    await waitForRender(() => expect(client.sendFile).toHaveBeenCalled());
     expect(client.sendFile).toHaveBeenCalledTimes(1); // single input handler — no double-submit in a real pty
     const arg = (client.sendFile.mock.calls as unknown as Array<[{ name: string; bytes: Uint8Array }]>)[0]![0];
     expect(arg.name).toBe("x.txt");
@@ -82,10 +90,10 @@ describe("App", () => {
     const { stdin, lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
     await tick();
     client.emit("file-offer", { fileId: "f1", name: "doc.pdf", mime: "application/pdf", size: 2048, chunkCount: 1, hash: "h", inline: false });
-    await vi.waitFor(() => expect(lastFrame()).toContain("doc.pdf"));
+    await waitForRender(() => expect(lastFrame()).toContain("doc.pdf"));
     expect(lastFrame()).toMatch(/accept/i);
     stdin.write("a");
-    await vi.waitFor(() => expect(client.acceptFile).toHaveBeenCalledWith("f1"));
+    await waitForRender(() => expect(client.acceptFile).toHaveBeenCalledWith("f1"));
   });
 
   it("declines a non-inline offer on 'd'", async () => {
@@ -93,9 +101,9 @@ describe("App", () => {
     const { stdin, lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
     await tick();
     client.emit("file-offer", { fileId: "f2", name: "big.zip", mime: "application/zip", size: 4096, chunkCount: 1, hash: "h", inline: false });
-    await vi.waitFor(() => expect(lastFrame()).toContain("big.zip"));
+    await waitForRender(() => expect(lastFrame()).toContain("big.zip"));
     stdin.write("d");
-    await vi.waitFor(() => expect(client.declineFile).toHaveBeenCalledWith("f2"));
+    await waitForRender(() => expect(client.declineFile).toHaveBeenCalledWith("f2"));
     expect(client.acceptFile).not.toHaveBeenCalled();
   });
 
@@ -119,7 +127,7 @@ describe("App", () => {
     render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
     await tick();
     client.emit("file-received", { fileId: "f1", blob: new Blob([new Uint8Array([1, 2, 3])]), name: "../escape.bin", mime: "application/octet-stream" });
-    await vi.waitFor(() => expect(readdirSync(dir)).toContain("escape.bin")); // traversal stripped
+    await waitForRender(() => expect(readdirSync(dir)).toContain("escape.bin")); // traversal stripped
     spy.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   });
