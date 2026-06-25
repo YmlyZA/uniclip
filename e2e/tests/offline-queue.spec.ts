@@ -45,14 +45,24 @@ test("offline send queues, shows pending, and flushes on reconnect", async () =>
   await pageB.goto(roomUrl);
   await expect(pageB.getByText(/secure channel/i)).toBeVisible({ timeout: 5_000 });
 
-  // Force A offline: go offline to block reconnects, then close the live relay WS
-  // so the client immediately enters "reconnecting" (setOffline alone does not drop
-  // already-open WebSocket connections in Chromium; it only blocks new ones).
-  await ctxA.setOffline(true);
+  // Force A offline. ORDER MATTERS: close the live relay WS *while still online*
+  // first, THEN go offline.
+  //   - setOffline alone does not drop an already-open WebSocket in Chromium (it
+  //     only blocks new connections), so an explicit close is required to make the
+  //     client enter "reconnecting".
+  //   - Closing AFTER going offline is racy: the WS closing handshake can't
+  //     complete over a dead network, so Chromium delays the `onclose` event
+  //     (until an internal timeout), intermittently pushing the "Reconnecting"
+  //     pill past the assertion below. Closing while online fires `onclose`
+  //     promptly → the client emits "reconnecting" deterministically.
+  //   - The client's first reconnect attempt is ~1s out (Backoff baseMs 1000), so
+  //     setOffline (applied in <100ms) lands well before it and blocks the
+  //     reconnect — the client stays reconnecting instead of re-establishing.
   await pageA.evaluate(() => {
     (window as unknown as Record<string, () => void>).__closeRelayWS?.();
   });
-  // Status-pill shows "Reconnecting" when the relay WS drops.
+  await ctxA.setOffline(true);
+  // Status-pill shows "Reconnecting" once the relay WS drops.
   await expect(pageA.getByText(/Reconnecting/i)).toBeVisible({ timeout: 10_000 });
 
   // Type while offline → optimistic item with a Queued marker, nothing delivered.
