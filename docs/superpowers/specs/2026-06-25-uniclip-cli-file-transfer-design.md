@@ -43,7 +43,7 @@ Modified: `apps/cli/src/app.tsx` (subscribe to `file-*`; add the send-path promp
 
 ## 4. Receive flow
 - On `file-offer`: **inline** images (the engine auto-accepts `image/*` ≤ `INLINE_IMAGE_MAX`) stream immediately — the CLI just saves on `file-received`. **Non-inline** offers put `<App>` into an *offer-prompt* state showing `name` + human size and `[a]ccept / [d]ecline`.
-  - `a` → `client.acceptFile(id)`; `d` → `client.declineFile(id)`. (If multiple offers arrive, they queue; one prompt at a time.)
+  - `a` → `client.acceptFile(id)`; `d` → `client.declineFile(id)`. **One prompt at a time:** a second non-inline offer arriving while one is still pending is dropped (not queued) — the sender's stall timer surfaces a `file-error` and they can retry. Concurrent offers are rare in the CLI↔CLI model; a proper offer queue is a deferred enhancement.
 - On `file-received {blob, name, mime}`: `const saved = await saveBlob(process.cwd(), name, blob)` → note "Saved <saved>". `saveBlob` applies `safeFilename` + `uniquePath` internally.
 
 ## 5. Security model
