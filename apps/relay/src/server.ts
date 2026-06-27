@@ -21,6 +21,7 @@ const app = buildApp({
   store,
   metrics,
   ipLimiter,
+  ...(process.env.STATIC_ROOT ? { staticRoot: process.env.STATIC_ROOT } : {}),
 });
 const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(
   app,
