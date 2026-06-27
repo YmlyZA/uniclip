@@ -18,10 +18,21 @@ COPY apps/relay ./apps/relay
 RUN pnpm install --frozen-lockfile --filter @uniclip/relay... --filter @uniclip/relay
 RUN cd apps/relay && bun build src/server.ts --target=bun --outfile=dist/server.js
 
+FROM oven/bun:1-alpine AS cli-builder
+WORKDIR /repo
+RUN apk add --no-cache nodejs npm && npm install -g pnpm@9.12.0
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
+COPY packages ./packages
+COPY apps/cli ./apps/cli
+RUN pnpm install --frozen-lockfile --filter @uniclip/cli... --filter @uniclip/cli
+ARG CLI_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64"
+RUN cd apps/cli && CLI_TARGETS="$CLI_TARGETS" sh scripts/build-binaries.sh
+
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
 COPY --from=relay-builder /repo/apps/relay/dist/server.js ./server.js
 COPY --from=web-builder /repo/apps/web/dist ./web
+COPY --from=cli-builder /repo/apps/cli/dist/dl ./web/dl
 ENV STATIC_ROOT=/app/web
 ENV PORT=3000
 EXPOSE 3000

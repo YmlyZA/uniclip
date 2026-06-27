@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { RoomStore } from "./rooms";
 import type { Metrics } from "./metrics";
+import { renderSetupScript } from "./installer";
 
 const startedAt = Date.now();
 
@@ -11,6 +14,23 @@ export interface AppDeps {
   store?: RoomStore;
   metrics?: Metrics;
   ipLimiter?: { allow: (ip: string) => boolean };
+  staticRoot?: string;
+}
+
+// "<sha256>  uniclip-<os>-<arch>" lines → { "uniclip-os-arch": "<sha256>" }.
+function readChecksums(staticRoot: string): Record<string, string> {
+  try {
+    const txt = readFileSync(join(staticRoot, "dl", "checksums.txt"), "utf8");
+    const out: Record<string, string> = {};
+    for (const line of txt.split("\n")) {
+      const m = line.trim().match(/^([0-9a-f]{64})\s+(\S+)$/i);
+      if (m) out[m[2]!] = m[1]!;
+    }
+    return out;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`readChecksums: ${(err as Error).message}`);
+    return {};
+  }
 }
 
 const CreateRoomBody = z.object({
@@ -62,6 +82,23 @@ export function buildApp(deps: AppDeps): Hono {
       "content-type": "text/plain; version=0.0.4",
     });
   });
+
+  if (deps.staticRoot) {
+    const staticRoot = deps.staticRoot;
+    app.get("/setup.sh", (c) => {
+      const host = c.req.header("host") ?? "localhost";
+      const scheme = c.req.header("x-forwarded-proto") ?? "http";
+      try {
+        const script = renderSetupScript({
+          base: `${scheme}://${host}`,
+          checksums: readChecksums(staticRoot),
+        });
+        return c.text(script, 200, { "content-type": "text/x-shellscript; charset=utf-8" });
+      } catch {
+        return c.text("bad request", 400);
+      }
+    });
+  }
 
   return app;
 }

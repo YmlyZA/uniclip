@@ -6,12 +6,31 @@ import { asciiQr } from "./qr";
 import { parseArgs } from "./args";
 import { startLanHost, joinLan } from "./lan-session";
 import { parseLanToken } from "./lan-token";
+import pkg from "../package.json";
 
 // Re-export so tests can import { parseArgs } from "./cli" per the task spec.
 export { parseArgs } from "./args";
 
-async function main() {
-  const { roomUrl: arg, relay, name, relayOnly, lan } = parseArgs(process.argv.slice(2));
+const USAGE = `uniclip — end-to-end-encrypted universal clipboard (CLI)
+
+Usage:
+  uniclip                     create a room (prints a QR to scan)
+  uniclip <room-url>          join a room
+  uniclip --lan               host an offline LAN room (no internet)
+  uniclip <lan-token>         join an offline LAN room
+
+Options:
+  --relay <base>   relay base URL (env UNICLIP_RELAY, default http://localhost:3000)
+  --name <name>    device name shown in the roster
+  --relay-only     force relay transport (disable P2P)
+  -h, --help       show this help
+  -v, --version    show version`;
+
+export async function main() {
+  const { roomUrl: arg, relay, name, relayOnly, lan, help, version } = parseArgs(process.argv.slice(2));
+
+  if (version) { console.log(pkg.version); return; }
+  if (help) { console.log(USAGE); return; }
 
   // Offline LAN host.
   if (lan) {

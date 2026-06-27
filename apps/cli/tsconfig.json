@@ -6,7 +6,8 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM"],
     "types": ["node"],
-    "noEmit": true
+    "noEmit": true,
+    "resolveJsonModule": true
   },
   "include": ["src"]
 }
