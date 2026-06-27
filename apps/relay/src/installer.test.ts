@@ -96,6 +96,12 @@ describe("renderSetupScript", () => {
     }
   });
 
+  it("skips malformed artifact names in the case block (injection-proof)", () => {
+    const s = renderSetupScript({ base: "http://h:3000", checksums: { "uniclip-linux-x64": "a".repeat(64), 'evil) ; rm -rf $HOME ;(': "b".repeat(64) } });
+    expect(s).toContain("linux-x64) want=");
+    expect(s).not.toContain("rm -rf");
+  });
+
   it("rejects a checksum mismatch (also catches the SPA-HTML fallback)", async () => {
     const serveDir = tmp();
     mkdirSync(join(serveDir, "dl"), { recursive: true });

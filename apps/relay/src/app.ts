@@ -27,7 +27,8 @@ function readChecksums(staticRoot: string): Record<string, string> {
       if (m) out[m[2]!] = m[1]!;
     }
     return out;
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`readChecksums: ${(err as Error).message}`);
     return {};
   }
 }

@@ -12,7 +12,10 @@ export function renderSetupScript(opts: { base: string; checksums: Record<string
     throw new Error(`unsafe base URL: ${opts.base}`);
   }
   // Emit a shell case mapping "<os>-<arch>" → expected sha256.
+  // Filter out any key that isn't a well-formed artifact name before interpolating
+  // into the case pattern — provably injection-free even if checksums.txt is tampered.
   const cases = Object.entries(opts.checksums)
+    .filter(([name]) => /^uniclip-[\w.-]+$/.test(name))
     .map(([name, sum]) => `    ${name.replace(/^uniclip-/, "")}) want="${sum}" ;;`)
     .join("\n");
   return `#!/bin/sh
