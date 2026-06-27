@@ -67,6 +67,16 @@ pnpm --filter @uniclip/cli dev <lan-token>
 
 In `--lan` mode the host mints a room locally, runs a tiny embedded relay, advertises it over mDNS, and shows a `uniclip+lan://…` pairing QR. A joiner discovers the host on the LAN and connects — syncing peer-to-peer with no internet at all. The secret rides only in the QR, never in the mDNS advert. (CLI↔CLI only: a browser can't run an mDNS responder, and LAN-HTTP isn't a secure context.)
 
+### Install the CLI (no Node required)
+
+From any running relay, install a standalone `uniclip` binary for your platform:
+
+```bash
+curl -O http://<host>:<port>/setup.sh && sh setup.sh
+```
+
+It downloads the right binary (macOS/Linux, arm64/x64), verifies its checksum, and installs it to `~/.local/bin/uniclip`. **Over plain HTTP this is MITM-able** — fine for a trusted/LAN relay, but use HTTPS (e.g. the `tailscale serve` setup above) for anything internet-exposed. For local dev without installing, `pnpm --filter @uniclip/cli dev` still works.
+
 ### Testing across devices (browser)
 
 `localhost` is a secure context, so the clipboard works on the machine running the dev server. **Other devices need HTTPS** — `navigator.clipboard` is unavailable over plain `http://<lan-ip>`, so clips silently won't sync there. The simplest way to get a trusted cert without configuring each device is [Tailscale](https://tailscale.com) `serve`:
