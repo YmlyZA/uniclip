@@ -459,6 +459,51 @@ describe("UniclipClient", () => {
     expect(errs).toContain("DISCONNECTED");
   });
 
+  it("emits a decrypt-fail diag carrying only the msgId (no plaintext/ciphertext)", async () => {
+    const sender = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#aaaaaaaaaaaaaaaaaa",
+      relayBase: "wss://uniclip.app",
+    });
+    const receiver = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#bbbbbbbbbbbbbbbbbb", // different secret → different key
+      relayBase: "wss://uniclip.app",
+    });
+    const diags: import("./diag").DiagEvent[] = [];
+    receiver.on("diag", (e) => diags.push(e));
+    await sender.connect();
+    await receiver.connect();
+    const senderWs = MockWebSocket.instances[0]!;
+    const receiverWs = MockWebSocket.instances[1]!;
+    senderWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+    receiverWs.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+
+    await sender.send("secret plaintext payload");
+    const wire = JSON.parse(senderWs.sent.find((s) => JSON.parse(s).type === "clip")!);
+    receiverWs.emit(wire);
+    await waitFor(() => diags.some((e) => e.phase === "decrypt-fail"));
+
+    const d = diags.find((e) => e.phase === "decrypt-fail")!;
+    expect(d.data).toEqual({ msgId: wire.msgId });
+    // Privacy lock: neither plaintext nor the wire ciphertext/iv leak into the event.
+    const serialized = JSON.stringify(d);
+    expect(serialized).not.toContain("secret plaintext payload");
+    expect(serialized).not.toContain(wire.ciphertext);
+    expect(serialized).not.toContain(wire.iv);
+  });
+
+  it("emits a transport diag when the channel opens (p2p) and closes (relay)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const diags: import("./diag").DiagEvent[] = [];
+    client.on("diag", (e) => diags.push(e));
+    await client.connect();
+    // ws lifecycle diag fires on connect/open:
+    await waitFor(() => diags.some((e) => e.phase === "ws" && e.data?.event === "open"));
+    expect(diags.some((e) => e.phase === "ws" && e.data?.event === "connecting")).toBe(true);
+  });
+
   it("aborts in-progress transfers when the socket drops (transient close, not disconnect)", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",

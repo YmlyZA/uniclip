@@ -37,13 +37,15 @@ const MIN_FROM = "00000000000000000000000000"; // < any real ULID
 const MAX_FROM = "ZZZZZZZZZZZZZZZZZZZZZZZZZZ"; // > any real ULID
 function mk(extra: Partial<Record<"onOpen" | "onClose" | "onMessage", () => void>> = {}) {
   const out: PeerSignal[] = [];
+  const diag: import("./diag").DiagEvent[] = [];
   const link = new PeerLink({
     iceServers: [], signal: (s) => out.push(s),
     onOpen: extra.onOpen ?? (() => {}), onClose: extra.onClose ?? (() => {}),
     onMessage: (extra.onMessage as ((d: string) => void)) ?? (() => {}),
     createConnection: mkPC,
+    onDiag: (e) => diag.push(e),
   });
-  return { link, out };
+  return { link, out, diag };
 }
 
 it("start() announces rtc-hello and creates no channel or offer yet", () => {
@@ -102,4 +104,30 @@ it("close() closes the connection and reports not open", () => {
   expect(link.isOpen()).toBe(false);
   expect(FakePC.last.connectionState).toBe("closed");
   expect(closed).toBe(true);
+});
+
+it("emits an ice-candidate diag with parsed typ/protocol", () => {
+  const { link, diag } = mk();
+  link.start();
+  FakePC.last.onicecandidate?.({
+    candidate: { toJSON: () => ({ candidate: "candidate:1 1 udp 1 192.168.1.5 5 typ host" }) },
+  } as any);
+  const d = diag.find((e) => e.phase === "ice-candidate");
+  expect(d?.data).toMatchObject({ typ: "host", protocol: "udp" });
+});
+
+it("emits a pc-state diag on connectionstatechange", () => {
+  const { link, diag } = mk();
+  link.start();
+  (FakePC.last as any).connectionState = "connected";
+  FakePC.last.onconnectionstatechange?.();
+  expect(diag.find((e) => e.phase === "pc-state")?.data).toMatchObject({ state: "connected" });
+});
+
+it("emits a dc open diag when the channel opens", async () => {
+  const { link, diag } = mk();
+  link.start();
+  await link.handleSignal({ type: "rtc-hello", from: MIN_FROM }); // we initiate → channel created
+  FakePC.last.channels[0]!.open();
+  expect(diag.find((e) => e.phase === "dc" && e.data?.event === "open")).toBeTruthy();
 });
