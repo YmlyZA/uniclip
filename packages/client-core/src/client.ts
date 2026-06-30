@@ -371,6 +371,7 @@ export class UniclipClient {
       ...(this.createConnection ? { createConnection: this.createConnection } : {}),
       signal: (s: PeerSignal) => {
         this.diag("signal", "info", `-> ${s.type}`, { dir: "send", type: s.type });
+        // Signaling ALWAYS rides the WS — never the channel it is establishing.
         if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(s));
       },
       onDiag: (e) => this.emit(e),

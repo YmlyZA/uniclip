@@ -37,6 +37,7 @@ export function attachDiagLog(
     write(formatDiagLine(now() - start, e) + "\n");
 
     if (e.phase === "ws" && e.data?.event === "connecting") {
+      clearTimer(relayTimer);
       relayTimer = setTimer(() => hint(`relay unreachable — check network/URL (no WS open in ${RELAY_OPEN_MS / 1000}s)`), RELAY_OPEN_MS);
     }
     if (e.phase === "ws" && e.data?.event === "open") {
@@ -46,6 +47,7 @@ export function attachDiagLog(
       sawTransit = true;
     }
     if (e.phase === "pc-state" && e.data?.state === "connecting") {
+      clearTimer(p2pTimer);
       p2pTimer = setTimer(() => {
         if (!sawTransit) hint("no STUN/relay candidates — P2P may be firewalled; will use relay");
       }, P2P_CONNECT_MS);

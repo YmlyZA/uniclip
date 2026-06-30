@@ -48,4 +48,25 @@ describe("attachDiagLog", () => {
     c.emit(ev({ phase: "ws", detail: "open", data: { event: "open" } }));
     expect(cleared).toBe(true);
   });
+  it("clears the first relay timer when a second 'connecting' event fires (reconnect does not leak stale handle)", () => {
+    const c = fakeClient();
+    const out: string[] = [];
+    let handleCounter = 0;
+    const handles: number[] = [];
+    const cleared: number[] = [];
+    attachDiagLog(c as any, {
+      now: () => 0,
+      write: (s) => out.push(s),
+      setTimer: (fn, _ms) => { const h = ++handleCounter; handles.push(h); return h; },
+      clearTimer: (h) => { cleared.push(h as number); },
+    });
+    // First connect: arms handle 1
+    c.emit(ev({ phase: "ws", detail: "connecting", data: { event: "connecting" } }));
+    expect(handles).toHaveLength(1);
+    const firstHandle = handles[0];
+    // Reconnect (second connecting): must clear handle 1 before arming handle 2
+    c.emit(ev({ phase: "ws", detail: "connecting", data: { event: "connecting" } }));
+    expect(cleared).toContain(firstHandle);
+    expect(handles).toHaveLength(2);
+  });
 });
