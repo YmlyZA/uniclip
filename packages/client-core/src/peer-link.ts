@@ -1,5 +1,6 @@
 import { ulid } from "ulid";
 import { DATACHANNEL_LABEL } from "./constants";
+import { parseCandidate, type DiagEvent } from "./diag";
 
 export interface PeerSignal {
   type: "sdp" | "ice" | "rtc-hello";
@@ -15,6 +16,7 @@ export interface PeerLinkOptions {
   onClose: () => void;
   onMessage: (data: string) => void;
   createConnection?: (config: RTCConfiguration) => RTCPeerConnection;
+  onDiag?: (e: DiagEvent) => void;
 }
 
 // One RTCPeerConnection + one ordered/reliable RTCDataChannel, driven by the
@@ -39,6 +41,10 @@ export class PeerLink {
     this.make = opts.createConnection ?? ((c) => new RTCPeerConnection(c));
   }
 
+  private diag(phase: DiagEvent["phase"], level: DiagEvent["level"], detail: string, data?: Record<string, string | number>): void {
+    this.opts.onDiag?.({ kind: "diag", phase, level, detail, ...(data ? { data } : {}) });
+  }
+
   isOpen(): boolean {
     return this.channel?.readyState === "open";
   }
@@ -46,14 +52,21 @@ export class PeerLink {
   start(): void {
     const pc = this.make({ iceServers: this.opts.iceServers });
     this.pc = pc;
-    pc.onicecandidate = ({ candidate }) =>
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        const sdpStr = (candidate.toJSON() as { candidate?: string }).candidate ?? "";
+        const { typ, protocol } = parseCandidate(sdpStr);
+        if (typ) this.diag("ice-candidate", "info", `${typ} ${protocol ?? ""}`.trim(), { typ, ...(protocol ? { protocol } : {}) });
+      }
       this.opts.signal({
         type: "ice",
         from: this.from,
         candidate: candidate ? JSON.stringify(candidate.toJSON()) : "",
       });
+    };
     pc.onconnectionstatechange = () => {
       const s = pc.connectionState;
+      this.diag("pc-state", s === "failed" ? "error" : "info", s, { state: s });
       if (s === "failed" || s === "disconnected" || s === "closed") this.fireClose();
     };
     // Either peer may turn out to be the responder, so always be ready to
@@ -129,8 +142,8 @@ export class PeerLink {
 
   private wireChannel(ch: RTCDataChannel): void {
     this.channel = ch;
-    ch.onopen = () => this.opts.onOpen();
-    ch.onclose = () => this.fireClose();
+    ch.onopen = () => { this.diag("dc", "info", "open", { event: "open" }); this.opts.onOpen(); };
+    ch.onclose = () => { this.diag("dc", "warn", "close", { event: "close" }); this.fireClose(); };
     ch.onmessage = (ev: MessageEvent) => this.opts.onMessage(ev.data as string);
   }
 

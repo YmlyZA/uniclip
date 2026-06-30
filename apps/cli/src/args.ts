@@ -1,5 +1,5 @@
 /** Pure argv parser — no side effects, safe to import in tests. */
-export function parseArgs(argv: string[]): { roomUrl?: string; relay: string; name?: string; relayOnly: boolean; lan: boolean; help: boolean; version: boolean } {
+export function parseArgs(argv: string[]): { roomUrl?: string; relay: string; name?: string; relayOnly: boolean; lan: boolean; help: boolean; version: boolean; verbose: boolean } {
   let roomUrl: string | undefined;
   let relay = process.env.UNICLIP_RELAY ?? "http://localhost:3000";
   let name: string | undefined;
@@ -7,6 +7,7 @@ export function parseArgs(argv: string[]): { roomUrl?: string; relay: string; na
   let lan = false;
   let help = false;
   let version = false;
+  let verbose = process.env.UNICLIP_VERBOSE ? true : false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) continue;
@@ -16,6 +17,7 @@ export function parseArgs(argv: string[]): { roomUrl?: string; relay: string; na
     else if (a === "--lan") { lan = true; }
     else if (a === "--help" || a === "-h") { help = true; }
     else if (a === "--version" || a === "-v") { version = true; }
+    else if (a === "--verbose" || a === "-V") { verbose = true; }
     else if (!a.startsWith("-")) { roomUrl = a; }
   }
   return {
@@ -26,5 +28,6 @@ export function parseArgs(argv: string[]): { roomUrl?: string; relay: string; na
     lan,
     help,
     version,
+    verbose,
   };
 }

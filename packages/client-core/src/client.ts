@@ -7,6 +7,7 @@ import { deriveRoomKey } from "./room-key";
 import { FileTransferManager, type FileClientEvent } from "./file-transfer";
 import { PeerLink, type PeerSignal } from "./peer-link";
 import { PresenceManager, type Device, type PresenceFrame } from "./presence";
+import type { DiagEvent } from "./diag";
 
 const MAX_QUEUE = 100;
 
@@ -22,6 +23,7 @@ export type ClientEvent =
   | { kind: "sent"; msgId: string }
   | { kind: "transport"; value: "p2p" | "relay" }
   | { kind: "presence"; roster: Device[] }
+  | DiagEvent
   | FileClientEvent;
 
 // Per-event handler signatures. `clip` carries the frame's original `ts` so
@@ -41,6 +43,7 @@ export interface EventHandlers {
   "file-cancel": (c: { fileId: string; reason: string }) => void;
   transport: (value: "p2p" | "relay") => void;
   presence: (roster: Device[]) => void;
+  diag: (e: DiagEvent) => void;
 }
 
 export interface UniclipClientOptions {
@@ -128,8 +131,13 @@ export class UniclipClient {
         case "file-cancel": (cb as EventHandlers["file-cancel"])(evt); break;
         case "transport": (cb as EventHandlers["transport"])(evt.value); break;
         case "presence": (cb as EventHandlers["presence"])(evt.roster); break;
+        case "diag": (cb as EventHandlers["diag"])(evt); break;
       }
     }
+  }
+
+  private diag(phase: DiagEvent["phase"], level: DiagEvent["level"], detail: string, data?: Record<string, string | number>): void {
+    this.emit({ kind: "diag", phase, level, detail, ...(data ? { data } : {}) });
   }
 
   async connect(): Promise<void> {
@@ -142,13 +150,19 @@ export class UniclipClient {
 
   private openSocket(): void {
     this.emit({ kind: "status", value: "connecting" });
+    this.diag("ws", "info", "connecting", { event: "connecting" });
     const ws = new WebSocket(`${this.relayBase}/ws/${this.room.routingId}`);
     this.ws = ws;
     ws.onopen = () => {
       this.backoff.reset();
+      this.diag("ws", "info", "open", { event: "open" });
     };
     ws.onmessage = (ev) => this.handleFrame(ev.data as string).catch(() => undefined);
-    ws.onclose = () => this.handleClose();
+    ws.onclose = (ev) => {
+      const code = (ev as CloseEvent | undefined)?.code;
+      this.diag("ws", "warn", code ? `closed (${code})` : "closed", { event: "close", ...(typeof code === "number" ? { code } : {}) });
+      this.handleClose();
+    };
     ws.onerror = () => this.emit({ kind: "error", code: "WS_ERROR", message: "websocket error" });
   }
 
@@ -238,6 +252,7 @@ export class UniclipClient {
           this.decryptedOk = true;
           this.emit({ kind: "clip", text, ts: frame.ts, msgId: frame.msgId });
         } catch {
+          this.diag("decrypt-fail", "warn", "decrypt failed", { msgId: frame.msgId });
           // Frames arrive but never decrypt: almost always a wrong/missing key —
           // e.g. a Mode-A room opened without its #secret (some apps strip the
           // fragment from shared links), so the client derived a Mode-B key.
@@ -270,6 +285,7 @@ export class UniclipClient {
       case "ice":
       case "rtc-hello":
         if (via !== "ws") return;
+        this.diag("signal", "info", `<- ${frame.type}`, { dir: "recv", type: frame.type });
         await this.peer?.handleSignal(frame as PeerSignal);
         return;
       case "presence":
@@ -344,6 +360,7 @@ export class UniclipClient {
   private setTransport(value: "p2p" | "relay"): void {
     if (this.transport === value) return;
     this.transport = value;
+    this.diag("transport", "info", value === "p2p" ? "relay -> p2p" : "p2p -> relay", { value });
     this.emit({ kind: "transport", value });
   }
 
@@ -353,9 +370,11 @@ export class UniclipClient {
       iceServers: this.iceServers,
       ...(this.createConnection ? { createConnection: this.createConnection } : {}),
       signal: (s: PeerSignal) => {
+        this.diag("signal", "info", `-> ${s.type}`, { dir: "send", type: s.type });
         // Signaling ALWAYS rides the WS — never the channel it is establishing.
         if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(s));
       },
+      onDiag: (e) => this.emit(e),
       onOpen: () => this.setTransport("p2p"),
       onMessage: (data) => void this.handleFrame(data, "p2p").catch(() => undefined),
       onClose: () => {

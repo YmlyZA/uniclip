@@ -21,6 +21,8 @@
   import { toast } from "../lib/toast";
   import { historyText, downloadTextFile } from "../lib/export";
   import { matchesQuery } from "../lib/clip-content";
+  import DebugOverlay from "../components/debug-overlay.svelte";
+  import { pushDiag, debugEnabled, type DiagRow } from "../lib/debug-overlay";
 
   let { room }: { room: ParsedRoom } = $props();
 
@@ -52,6 +54,9 @@
   let peerCount = $state(1);
   let status = $state<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
   let transport = $state<"p2p" | "relay">("relay");
+  let diagRows = $state<DiagRow[]>([]);
+  let showDebug = $state(debugEnabled(typeof location !== "undefined" ? location.search : ""));
+  const diagStart = Date.now();
   let watching = $state(false);
   let showShare = $state(false);
   let backfillOn = $state(false);
@@ -112,6 +117,9 @@
     c.on("peer", (n) => (peerCount = n));
     c.on("presence", (r) => (roster = r));
     c.on("transport", (v) => (transport = v));
+    c.on("diag", (e) => {
+      diagRows = pushDiag(diagRows, { phase: e.phase, level: e.level, detail: e.detail, t: Date.now() - diagStart });
+    });
     c.on("room", (info) => {
       backfillOn = info.backfill;
       if (info.ephemeral && !ephemeralOn) {
@@ -163,6 +171,15 @@
     watcher.stop();
     expiry?.clear();
     client?.disconnect();
+  });
+
+  $effect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const tag = (ev.target as HTMLElement | null)?.tagName;
+      if (ev.key === "?" && tag !== "INPUT" && tag !== "TEXTAREA") showDebug = !showDebug;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
   async function addItem(text: string, ts: number, msgId: string, mine: boolean, queued = false) {
@@ -446,5 +463,9 @@
 
   {#if dragging}
     <DropOverlay />
+  {/if}
+
+  {#if showDebug}
+    <DebugOverlay rows={diagRows} {transport} onClose={() => (showDebug = false)} />
   {/if}
 </div>

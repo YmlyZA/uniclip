@@ -6,6 +6,7 @@ import { asciiQr } from "./qr";
 import { parseArgs } from "./args";
 import { startLanHost, joinLan } from "./lan-session";
 import { parseLanToken } from "./lan-token";
+import { attachDiagLog } from "./diag-log";
 import pkg from "../package.json";
 
 // Re-export so tests can import { parseArgs } from "./cli" per the task spec.
@@ -23,11 +24,12 @@ Options:
   --relay <base>   relay base URL (env UNICLIP_RELAY, default http://localhost:3000)
   --name <name>    device name shown in the roster
   --relay-only     force relay transport (disable P2P)
+  -V, --verbose    print transport diagnostics to stderr (state machine + hints)
   -h, --help       show this help
   -v, --version    show version`;
 
 export async function main() {
-  const { roomUrl: arg, relay, name, relayOnly, lan, help, version } = parseArgs(process.argv.slice(2));
+  const { roomUrl: arg, relay, name, relayOnly, lan, help, version, verbose } = parseArgs(process.argv.slice(2));
 
   if (version) { console.log(pkg.version); return; }
   if (help) { console.log(USAGE); return; }
@@ -35,6 +37,7 @@ export async function main() {
   // Offline LAN host.
   if (lan) {
     const host = await startLanHost({ ...(name ? { deviceName: name } : {}) });
+    if (verbose) attachDiagLog(host.client as any);
     const qr = await asciiQr(host.token);
     const { waitUntilExit } = render(
       <App client={host.client as any} roomUrl={host.roomUrl} qr={qr} onExit={() => host.dispose()} />,
@@ -51,8 +54,10 @@ export async function main() {
     } catch (e) {
       console.error(`Couldn't find that room on this network: ${(e as Error).message}`);
       console.error("Make sure both devices are on the same Wi-Fi/LAN.");
+      if (verbose) console.error("[hint] ! mDNS found nothing — suspect guest/AP-isolation Wi-Fi blocking multicast.");
       process.exit(1);
     }
+    if (verbose) attachDiagLog(joiner.client as any);
     const { waitUntilExit } = render(
       <App client={joiner.client as any} roomUrl={joiner.roomUrl} qr="" onExit={() => joiner.dispose()} />,
     );
@@ -78,6 +83,7 @@ export async function main() {
   }
   const qr = await asciiQr(roomUrl);
   const client = makeClient({ roomUrl, relayOnly, ...(name ? { deviceName: name } : {}) });
+  if (verbose) attachDiagLog(client);
   const { waitUntilExit } = render(
     <App
       client={client as any}
