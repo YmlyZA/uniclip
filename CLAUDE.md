@@ -66,6 +66,7 @@ Packages (`packages/`) are consumed as **TypeScript source** (`main` → `src/in
 - **`apps/web` needs `@sveltejs/vite-plugin-svelte` v5** (for Vite 6). v4 makes the dev server resolve Svelte's *server* build → `mount()` throws → blank page. The `vite build` still succeeds, so only the dev server / E2E catches it.
 - **`apps/web` tests mock browser globals with `vi.stubGlobal`**, not `Object.assign(globalThis, …)` — `navigator` is a getter-only global in this Node and `Object.assign` throws.
 - Helpers feeding WebCrypto return `Uint8Array<ArrayBuffer>` (not bare `Uint8Array`) so they satisfy `BufferSource` under TS 5.7's generic `Uint8Array`.
+- **werift is patched (`patches/werift@0.23.0.patch`, via pnpm `patchedDependencies`).** Stock werift 0.23 falls back to a hardcoded public STUN (`stun.l.google.com`) whenever no STUN server is configured (`ice.js`: `this.stunServer = validateAddress(x) ?? [google]`), so `iceServers: []` would gather an srflx candidate — phoning home and **breaking `--lan`'s zero-internet guarantee** (and stalling ~5s on werift's hardcoded STUN timeout when offline). The patch drops that default so "no STUN configured" means **host candidates only**. If you bump werift, re-apply/re-verify the patch; the invariant is guarded by `apps/cli/src/werift-hostonly.test.ts` (real gather asserts host-only, no srflx). `pnpm install` applies the patch automatically; CI must run `pnpm install` (not a bare `node_modules` restore) so the patch lands.
 
 ## Conventions
 
