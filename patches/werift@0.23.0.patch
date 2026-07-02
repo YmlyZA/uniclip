@@ -1,0 +1,32 @@
+diff --git a/lib/ice/src/ice.js b/lib/ice/src/ice.js
+index 74cf126300a922fe1eafd2d2453d23b087f1277b..e416c95d84c857cd6f4b52dee4e03bf8aafcd4a5 100644
+--- a/lib/ice/src/ice.js
++++ b/lib/ice/src/ice.js
+@@ -452,10 +452,7 @@ class Connection {
+             ...options,
+         };
+         const { stunServer, turnServer } = this.options;
+-        this.stunServer = (0, iceBase_1.validateAddress)(stunServer) ?? [
+-            "stun.l.google.com",
+-            19302,
+-        ];
++        this.stunServer = (0, iceBase_1.validateAddress)(stunServer);
+         this.turnServer = (0, iceBase_1.validateAddress)(turnServer);
+         this.restart();
+         log("new Connection", this.options);
+diff --git a/lib/index.mjs b/lib/index.mjs
+index 6e63c1c8e76e336c63d45ecf8d88edfa0a877531..907dc2b57ee2a1b6b582be4597b0be8623dc8997 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -7885,10 +7885,7 @@ var Connection = class {
+       ...options
+     };
+     const { stunServer, turnServer } = this.options;
+-    this.stunServer = validateAddress(stunServer) ?? [
+-      "stun.l.google.com",
+-      19302
+-    ];
++    this.stunServer = validateAddress(stunServer);
+     this.turnServer = validateAddress(turnServer);
+     this.restart();
+     log22("new Connection", this.options);

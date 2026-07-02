@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  werift@0.23.0:
+    hash: qbwlhd64a2sx244lpwmfi6nvf4
+    path: patches/werift@0.23.0.patch
+
 importers:
 
   .:
@@ -46,7 +51,7 @@ importers:
         version: 18.3.1
       werift:
         specifier: ^0.23.0
-        version: 0.23.0
+        version: 0.23.0(patch_hash=qbwlhd64a2sx244lpwmfi6nvf4)
       ws:
         specifier: ^8.21.0
         version: 8.21.0
@@ -5121,7 +5126,7 @@ snapshots:
     dependencies:
       '@shinyoshiaki/jspack': 0.0.6
 
-  werift@0.23.0:
+  werift@0.23.0(patch_hash=qbwlhd64a2sx244lpwmfi6nvf4):
     dependencies:
       '@fidm/x509': 1.2.1
       '@minhducsun2002/leb128': 1.0.0

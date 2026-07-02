@@ -8,7 +8,10 @@ function asString(d: string | Buffer | ArrayBuffer): string {
 }
 
 // DOM RTCIceServer.urls may be string | string[]; werift wants a single string,
-// so expand each multi-URL entry into multiple single-URL werift entries.
+// so expand each multi-URL entry into multiple single-URL werift entries. An
+// empty list passes through as empty: werift is patched (patches/werift@0.23.0.patch)
+// so "no STUN configured" means host candidates only — NOT a fall back to a
+// hardcoded public STUN — which is what `--lan`'s zero-internet guarantee relies on.
 function toWeriftIceServers(config: RTCConfiguration): { urls: string; username?: string; credential?: string }[] {
   return (config.iceServers ?? []).flatMap((s) => {
     const urlList = Array.isArray(s.urls) ? s.urls : [s.urls];

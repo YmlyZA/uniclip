@@ -101,4 +101,11 @@ describe("weriftPeer adapter", () => {
     weriftPeerWith(make, { iceServers: [{ urls: ["stun:a:1", "stun:b:2"] }, { urls: "stun:c:3" }] });
     expect(captured.iceServers).toEqual([{ urls: "stun:a:1" }, { urls: "stun:b:2" }, { urls: "stun:c:3" }]);
   });
+
+  it("passes an empty iceServers list through unchanged (host-only relies on the werift patch, not an injected STUN)", () => {
+    let captured: any;
+    const make = (cfg: any) => { captured = cfg; return fakeWerift() as any; };
+    weriftPeerWith(make, { iceServers: [] });
+    expect(captured.iceServers).toEqual([]);
+  });
 });
