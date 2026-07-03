@@ -158,12 +158,24 @@ export class UniclipClient {
       this.diag("ws", "info", "open", { event: "open" });
     };
     ws.onmessage = (ev) => this.handleFrame(ev.data as string).catch(() => undefined);
-    ws.onclose = (ev) => {
-      const code = (ev as CloseEvent | undefined)?.code;
+    // The socket can die two ways, and the runtimes disagree on which fires:
+    // browsers fire onerror THEN onclose; Node's global WebSocket (undici) fires
+    // onerror WITHOUT onclose on a *failed connect*. Route both through one
+    // idempotent path so a failed reconnect still schedules the next attempt —
+    // otherwise the reconnect loop dies after the first offline retry (it never
+    // recovers when the network returns). `down` fires at most once per socket.
+    let handledDown = false;
+    const down = (code?: number) => {
+      if (handledDown) return;
+      handledDown = true;
       this.diag("ws", "warn", code ? `closed (${code})` : "closed", { event: "close", ...(typeof code === "number" ? { code } : {}) });
       this.handleClose();
     };
-    ws.onerror = () => this.emit({ kind: "error", code: "WS_ERROR", message: "websocket error" });
+    ws.onclose = (ev) => down((ev as CloseEvent | undefined)?.code);
+    ws.onerror = () => {
+      this.emit({ kind: "error", code: "WS_ERROR", message: "websocket error" });
+      down();
+    };
   }
 
   private handleClose(): void {

@@ -197,6 +197,43 @@ describe("UniclipClient", () => {
     expect(res.ts).toBe(wire.ts);
   });
 
+  it("keeps reconnecting when a connect attempt fails with onerror but no onclose (Node/undici)", async () => {
+    // Node's global WebSocket (undici) fires onerror WITHOUT onclose on a failed
+    // connect. The reconnect loop must still reschedule the next attempt, or it
+    // dies after one failure — a real "can't auto-reconnect" bug found on
+    // hardware. (Browsers fire onerror THEN onclose, so the reschedule must run
+    // exactly once, not twice.)
+    const created: unknown[] = [];
+    class ErrOnlyWS {
+      static OPEN = 1;
+      static CLOSED = 3;
+      readyState = 0;
+      url: string;
+      onopen: ((e: unknown) => void) | null = null;
+      onmessage: ((e: unknown) => void) | null = null;
+      onclose: ((e: unknown) => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      constructor(url: string) {
+        this.url = url;
+        created.push(this);
+        queueMicrotask(() => this.onerror?.(new Event("error"))); // connect fails, error only
+      }
+      send() {}
+      close() {}
+    }
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = ErrOnlyWS;
+    vi.useFakeTimers();
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    await client.connect(); // opens WS #1; its onerror is queued
+    await vi.advanceTimersByTimeAsync(0); // flush the onerror microtask → schedule reconnect
+    await vi.advanceTimersByTimeAsync(1500); // fire the backoff reconnect → opens WS #2
+    expect(created.length).toBeGreaterThanOrEqual(2); // loop survived an onerror-only failure
+    vi.useRealTimers();
+  });
+
   it("emits the frame's msgId with 'clip' (for persist dedup)", async () => {
     const sender = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
