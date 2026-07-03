@@ -2,3 +2,9 @@ packages:
   - "apps/*"
   - "packages/*"
   - "e2e"
+
+# patchedDependencies must live here for pnpm >= 10 (it ignores the same key in
+# package.json's "pnpm" field, warning "keys were ignored"). It is ALSO kept in
+# package.json for pnpm 9. Keep both in sync. See patches/ and CLAUDE.md.
+patchedDependencies:
+  "werift@0.23.0": "patches/werift@0.23.0.patch"
