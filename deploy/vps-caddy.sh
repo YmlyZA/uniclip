@@ -232,7 +232,10 @@ inject_caddy() {
   if [ "$DRY_RUN" -eq 1 ]; then
     printf '\033[2m[dry-run]\033[0m would write updated Caddyfile:\n%s\n' "$updated"
   else
-    printf '%s\n' "$updated" >"$CADDYFILE_HOST"
+    printf '%s\n' "$updated" >"$CADDYFILE_HOST" || {
+      run cp -p "$backup" "$CADDYFILE_HOST" 2>/dev/null || true
+      die "writing $CADDYFILE_HOST failed; last-known-good config is backed up at $backup (Caddy keeps serving the previous config until reloaded)"
+    }
   fi
 
   log "validating Caddy config"
