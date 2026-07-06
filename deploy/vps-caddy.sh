@@ -68,7 +68,7 @@ preflight() {
   docker info >/dev/null 2>&1 || die "cannot reach the Docker daemon (try sudo, or add your user to the docker group)"
   log "domain: $DOMAIN"
   log "repo:   $REPO_ROOT"
-  [ "$DRY_RUN" -eq 1 ] && log "DRY RUN — no changes will be made"
+  if [ "$DRY_RUN" -eq 1 ]; then log "DRY RUN — no changes will be made"; fi
 }
 
 main() {
