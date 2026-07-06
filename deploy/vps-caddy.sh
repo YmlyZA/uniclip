@@ -189,6 +189,83 @@ run_relay() {
   fi
 }
 
+UNICLIP_BEGIN="# >>> uniclip (managed by deploy/vps-caddy.sh) >>>"
+UNICLIP_END="# <<< uniclip <<<"
+
+# Emit the Caddy site block for $DOMAIN proxying to $1 (uniclip:3000 or 127.0.0.1:3000).
+uniclip_block() {
+  local target="$1"
+  cat <<EOF
+$UNICLIP_BEGIN
+$DOMAIN {
+    encode zstd gzip
+    reverse_proxy $target
+}
+$UNICLIP_END
+EOF
+}
+
+# Upsert the marker-delimited block into a Caddyfile: replace between markers if
+# present, else append. Reads $1, writes the result to stdout. Pure/testable.
+caddyfile_upsert() {
+  local file="$1" target="$2" block
+  block="$(uniclip_block "$target")"
+  # blk is passed via ENVIRON (not -v) because macOS's /usr/bin/awk (BWK awk)
+  # rejects a literal newline inside a -v string assignment ("newline in
+  # string"); ENVIRON is read verbatim by both BWK awk and gawk.
+  UNICLIP_BLK="$block" awk -v b="$UNICLIP_BEGIN" -v e="$UNICLIP_END" '
+    $0 == b { skip = 1; next }
+    $0 == e { skip = 0; replaced = 1; print ENVIRON["UNICLIP_BLK"]; next }
+    skip { next }
+    { print }
+    END { if (!replaced) { print ""; print ENVIRON["UNICLIP_BLK"] } }
+  ' "$file"
+}
+
+inject_caddy() {
+  local backup updated
+  backup="$CADDYFILE_HOST.bak-$(date +%Y%m%d-%H%M%S)"
+  log "backing up Caddyfile -> $backup"
+  run cp -p "$CADDYFILE_HOST" "$backup"
+
+  updated="$(caddyfile_upsert "$CADDYFILE_HOST" "uniclip:3000")"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '\033[2m[dry-run]\033[0m would write updated Caddyfile:\n%s\n' "$updated"
+  else
+    printf '%s\n' "$updated" >"$CADDYFILE_HOST"
+  fi
+
+  log "validating Caddy config"
+  if ! run docker exec "$CADDY_CONTAINER" caddy validate --config "$CADDYFILE_CTR" --adapter caddyfile; then
+    warn "validate failed — restoring backup"
+    run cp -p "$backup" "$CADDYFILE_HOST"
+    die "Caddy config invalid; original restored from $backup"
+  fi
+
+  log "reloading Caddy"
+  if ! run docker exec "$CADDY_CONTAINER" caddy reload --config "$CADDYFILE_CTR" --adapter caddyfile; then
+    warn "reload failed — restoring backup and reloading the original"
+    run cp -p "$backup" "$CADDYFILE_HOST"
+    run docker exec "$CADDY_CONTAINER" caddy reload --config "$CADDYFILE_CTR" --adapter caddyfile || true
+    die "Caddy reload failed; original restored from $backup"
+  fi
+}
+
+print_host_guidance() {
+  cat <<EOF
+
+──────────────────────────────────────────────────────────────
+Host Caddy detected — the relay is running on 127.0.0.1:3000. Apply manually:
+
+1) Add this block to your Caddyfile (e.g. /etc/caddy/Caddyfile):
+
+$(uniclip_block "127.0.0.1:3000")
+
+2) Reload:  sudo systemctl reload caddy
+──────────────────────────────────────────────────────────────
+EOF
+}
+
 main() {
   parse_args "$@"
   preflight
@@ -200,7 +277,12 @@ main() {
   confirm_plan
   build_image
   run_relay
-  # inject / verify are added in later tasks
+  if [ "$CADDY_MODE" = "docker" ]; then
+    inject_caddy
+  else
+    print_host_guidance
+  fi
+  # verify / summary added in Task 5
 }
 
 # Only run main when executed directly; sourcing (e.g. the test) just defines fns.
