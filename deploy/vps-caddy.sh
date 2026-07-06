@@ -90,6 +90,8 @@ pick_one() {
   printf 'Pick %s [1]: ' "$label" >&2
   read -r sel || true
   sel="${sel:-1}"
+  case "$sel" in *[!0-9]* | '') sel=1 ;; esac
+  { [ "$sel" -ge 1 ] && [ "$sel" -le "${#arr[@]}" ]; } || sel=1
   printf '%s' "${arr[$((sel - 1))]}"
 }
 
