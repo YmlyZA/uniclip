@@ -226,7 +226,7 @@ inject_caddy() {
   local backup updated
   backup="$CADDYFILE_HOST.bak-$(date +%Y%m%d-%H%M%S)"
   log "backing up Caddyfile -> $backup"
-  run cp -p "$CADDYFILE_HOST" "$backup"
+  run cp -p "$CADDYFILE_HOST" "$backup" || die "backup failed ($CADDYFILE_HOST -> $backup); aborting before any change"
 
   updated="$(caddyfile_upsert "$CADDYFILE_HOST" "uniclip:3000")"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -238,14 +238,14 @@ inject_caddy() {
   log "validating Caddy config"
   if ! run docker exec "$CADDY_CONTAINER" caddy validate --config "$CADDYFILE_CTR" --adapter caddyfile; then
     warn "validate failed — restoring backup"
-    run cp -p "$backup" "$CADDYFILE_HOST"
+    run cp -p "$backup" "$CADDYFILE_HOST" || die "CRITICAL: automatic restore also failed; last-known-good backup is at $backup — restore it manually"
     die "Caddy config invalid; original restored from $backup"
   fi
 
   log "reloading Caddy"
   if ! run docker exec "$CADDY_CONTAINER" caddy reload --config "$CADDYFILE_CTR" --adapter caddyfile; then
     warn "reload failed — restoring backup and reloading the original"
-    run cp -p "$backup" "$CADDYFILE_HOST"
+    run cp -p "$backup" "$CADDYFILE_HOST" || die "CRITICAL: automatic restore also failed; last-known-good backup is at $backup — restore it manually"
     run docker exec "$CADDY_CONTAINER" caddy reload --config "$CADDYFILE_CTR" --adapter caddyfile || true
     die "Caddy reload failed; original restored from $backup"
   fi
