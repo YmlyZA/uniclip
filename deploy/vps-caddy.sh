@@ -266,6 +266,48 @@ $(uniclip_block "127.0.0.1:3000")
 EOF
 }
 
+verify() {
+  if [ "$DRY_RUN" -eq 1 ]; then log "dry-run: skipping health checks"; return; fi
+  if [ "$CADDY_MODE" = "docker" ]; then
+    log "checking Caddy -> relay reachability"
+    if docker exec "$CADDY_CONTAINER" wget -qO- http://uniclip:3000/api/health >/dev/null 2>&1; then
+      log "  ok: Caddy reaches the relay over '$CADDY_NET'"
+    else
+      warn "  Caddy could not reach http://uniclip:3000 — check the shared network"
+    fi
+  fi
+  log "checking public https://$DOMAIN/api/health (retrying for cert issuance)"
+  local i
+  for i in 1 2 3 4 5 6; do
+    if curl -fsS "https://$DOMAIN/api/health" >/dev/null 2>&1; then
+      log "  ok: public HTTPS is live"
+      return
+    fi
+    sleep 5
+  done
+  warn "  public health check hasn't passed yet — the cert may still be issuing.
+  Check: docker logs ${CADDY_CONTAINER:-<caddy>} | grep -i certificate"
+}
+
+summary() {
+  cat <<EOF
+
+──────────────────────────────────────────────────────────────
+uniclip deployed behind Caddy.
+
+  URL:         https://$DOMAIN
+  Relay:       container 'uniclip' (network: ${CADDY_NET:-loopback:3000})
+  Persistence: volume 'uniclip_rooms' (room metadata only — never keys/frames)
+EOF
+  [ "$CADDY_MODE" = "docker" ] && printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
+  cat <<EOF
+
+  Update later: re-run this script (rebuilds + updates the block in place).
+  Logs:         docker logs -f uniclip
+──────────────────────────────────────────────────────────────
+EOF
+}
+
 main() {
   parse_args "$@"
   preflight
@@ -282,7 +324,8 @@ main() {
   else
     print_host_guidance
   fi
-  # verify / summary added in Task 5
+  verify
+  summary
 }
 
 # Only run main when executed directly; sourcing (e.g. the test) just defines fns.
