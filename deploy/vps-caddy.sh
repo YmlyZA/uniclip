@@ -165,6 +165,30 @@ EOF
   confirm "Proceed?" || die "aborted by user"
 }
 
+build_image() {
+  log "building uniclip:latest (first build cross-compiles the CLI binaries — slow)"
+  run docker build -t uniclip:latest "$REPO_ROOT"
+}
+
+run_relay() {
+  if docker ps -a --format '{{.Names}}' | grep -qx uniclip; then
+    log "removing existing 'uniclip' container (idempotent update)"
+    run docker rm -f uniclip
+  fi
+  log "starting relay container 'uniclip'"
+  if [ "$CADDY_MODE" = "docker" ]; then
+    run docker run -d --name uniclip --restart=unless-stopped \
+      --network "$CADDY_NET" \
+      -e ROOM_DB_PATH=/data/rooms.db -v uniclip_rooms:/data \
+      uniclip:latest
+  else
+    run docker run -d --name uniclip --restart=unless-stopped \
+      -p 127.0.0.1:3000:3000 \
+      -e ROOM_DB_PATH=/data/rooms.db -v uniclip_rooms:/data \
+      uniclip:latest
+  fi
+}
+
 main() {
   parse_args "$@"
   preflight
@@ -174,7 +198,9 @@ main() {
     detect_caddyfile
   fi
   confirm_plan
-  # build / run / inject / verify are added in later tasks
+  build_image
+  run_relay
+  # inject / verify are added in later tasks
 }
 
 # Only run main when executed directly; sourcing (e.g. the test) just defines fns.
