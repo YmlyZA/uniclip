@@ -39,6 +39,28 @@ Use `Caddyfile.host-snippet`: run the relay bound to loopback and add one
 `reverse_proxy` block to your existing host Caddy. See that file for the exact
 `docker run` line and config block.
 
+### Option B, automated (`vps-caddy.sh`)
+
+For a Dockerized Caddy, `deploy/vps-caddy.sh` does Option B end to end — detects
+the Caddy container, network, and Caddyfile; builds and runs the relay on that
+network (room metadata persisted); inserts a marker-delimited site block with a
+backup + `caddy validate` + reload + auto-rollback; then health-checks the relay
+and the public URL.
+
+```bash
+sudo ./deploy/vps-caddy.sh clip.example.com            # deploy (or update — it's idempotent)
+sudo ./deploy/vps-caddy.sh clip.example.com --dry-run  # preview every change, make none
+```
+
+Notes:
+- If Caddy is on Docker's default `bridge` network the script stops with
+  `docker network create`/`connect` guidance (the default bridge has no
+  container-name DNS, so `reverse_proxy uniclip:3000` can't resolve).
+- A **host/systemd** Caddy is detected too, but there the script builds+runs the
+  relay on `127.0.0.1:3000` and prints the block + `systemctl reload caddy` for
+  you to apply (it never edits host-managed files).
+- Re-run to update; the block is replaced between its markers, never duplicated.
+
 ## Room persistence (surviving restarts)
 
 By default the relay holds everything in memory, so a restart invalidates active
