@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { UniclipClient, deriveRoomKey } from "@uniclip/client-core";
+  import { UniclipClient, deriveRoomKey, fetchIceServers } from "@uniclip/client-core";
   import type { ParsedRoom } from "@uniclip/room-code";
   import Header from "../components/header.svelte";
   import ItemsList from "../components/items-list.svelte";
@@ -76,15 +76,16 @@
     // exercised deterministically. A stub RTCPeerConnection whose data channel
     // never opens keeps transport = "relay" without throwing or affecting routing.
     const forceRelay = new URLSearchParams(location.search).has("forceRelay");
+    const iceServers = forceRelay ? [] : await fetchIceServers(httpBase);
 
     const c = new UniclipClient({
       roomUrl,
       relayBase,
       deviceId: deviceId(),
       deviceName,
+      iceServers,
       ...(forceRelay
         ? {
-            iceServers: [],
             createConnection: () =>
               ({
                 onicecandidate: null,

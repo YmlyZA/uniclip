@@ -1,4 +1,4 @@
-import { UniclipClient } from "@uniclip/client-core";
+import { UniclipClient, fetchIceServers } from "@uniclip/client-core";
 import { generateModeARoom } from "@uniclip/room-code";
 import { disabledPeer } from "./disabled-peer";
 import { weriftPeer } from "./werift-peer";
@@ -34,10 +34,14 @@ export function peerFactory(relayOnly: boolean): (config: RTCConfiguration) => R
 }
 
 // Build a UniclipClient. P2P uses werift unless relayOnly forces the relay.
-export function makeClient(opts: { roomUrl: string; deviceName?: string; relayOnly?: boolean }): UniclipClient {
+export async function makeClient(opts: { roomUrl: string; deviceName?: string; relayOnly?: boolean }): Promise<UniclipClient> {
+  const relayBase = relayBaseFromUrl(opts.roomUrl);
+  const httpBase = relayBase.replace(/^ws/, "http");
+  const iceServers = await fetchIceServers(httpBase);
   return new UniclipClient({
     roomUrl: opts.roomUrl,
-    relayBase: relayBaseFromUrl(opts.roomUrl),
+    relayBase,
+    iceServers,
     createConnection: peerFactory(opts.relayOnly ?? false),
     ...(opts.deviceName ? { deviceName: opts.deviceName } : {}),
   });
