@@ -4,11 +4,13 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoomStore } from "./rooms";
+import { RoomConflictError } from "./rooms";
 import type { Metrics } from "./metrics";
 import { renderSetupScript } from "./installer";
 import type { UpdateSnapshot } from "./version";
 import { ICE_SERVERS } from "@uniclip/protocol";
 import { mintIceCredentials, type TurnConfig } from "./turn";
+import { canonicalizeCode, isValidCustomCode } from "@uniclip/room-code";
 
 const startedAt = Date.now();
 
@@ -46,6 +48,8 @@ const CreateRoomBody = z.object({
   backfill: z.boolean().optional(),
   // Ephemeral rooms persist nothing on any device and auto-expire items.
   ephemeral: z.boolean().optional(),
+  // Optional user-chosen Mode-B code (e.g. "pizza-42"). Ignored for Mode A.
+  customCode: z.string().optional(),
 });
 
 export function buildApp(deps: AppDeps): Hono {
@@ -86,13 +90,24 @@ export function buildApp(deps: AppDeps): Hono {
     const json = await c.req.json().catch(() => null);
     const parsed = CreateRoomBody.safeParse(json);
     if (!parsed.success) return c.json({ error: "invalid body" }, 400);
-    const room = deps.store.create(
-      parsed.data.mode,
-      parsed.data.backfill ?? true,
-      parsed.data.ephemeral ?? false,
-    );
-    const expiresAt = new Date(room.createdAt + 24 * 3600_000).toISOString();
-    return c.json({ roomId: room.id, expiresAt });
+    let customId: string | undefined;
+    if (parsed.data.mode === "B" && parsed.data.customCode !== undefined) {
+      customId = canonicalizeCode(parsed.data.customCode);
+      if (!isValidCustomCode(customId)) return c.json({ error: "invalid code" }, 400);
+    }
+    try {
+      const room = deps.store.create(
+        parsed.data.mode,
+        parsed.data.backfill ?? true,
+        parsed.data.ephemeral ?? false,
+        customId,
+      );
+      const expiresAt = new Date(room.createdAt + 24 * 3600_000).toISOString();
+      return c.json({ roomId: room.id, expiresAt });
+    } catch (e) {
+      if (e instanceof RoomConflictError) return c.json({ error: "code_taken" }, 409);
+      throw e;
+    }
   });
 
   app.get("/api/metrics", (c) => {
