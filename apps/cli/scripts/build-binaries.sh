@@ -11,12 +11,16 @@ OUT="dist/dl"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Empty target list: produce an empty dist/dl (+ empty checksums) so the image's
-# runtime `COPY --from=cli-builder .../dist/dl` still succeeds. The relay then
-# serves no downloadable binaries until a full build refreshes them.
-if [ -z "$TARGETS" ]; then
+# Skip the cross-compile when there are no targets. `none` is the robust way to
+# ask for a skip: an empty-string build-arg does NOT reliably propagate through
+# all Docker/BuildKit versions (some fall back to the ARG default and build
+# anyway), whereas a non-empty sentinel always reaches here. Empty is honored too
+# (works where empty build-args do propagate). Either way we still produce an
+# empty dist/dl (+ empty checksums) so the runtime `COPY .../dist/dl` succeeds;
+# the relay then serves no downloadable binaries until a full build refreshes them.
+if [ -z "$TARGETS" ] || [ "$TARGETS" = "none" ]; then
   : > "$OUT/checksums.txt"
-  echo "CLI_TARGETS empty — skipped binary cross-compile (dist/dl is empty)"
+  echo "CLI_TARGETS none/empty — skipped binary cross-compile (dist/dl is empty)"
   exit 0
 fi
 
