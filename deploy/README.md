@@ -61,6 +61,37 @@ Notes:
   you to apply (it never edits host-managed files).
 - Re-run to update; the block is replaced between its markers, never duplicated.
 
+### Updating a running deploy
+
+After the first deploy the Caddyfile block is already in place, so a routine
+update only needs to rebuild the image and recreate the relay — Caddy is never
+touched. Two equivalent ways:
+
+```bash
+# a) the script's fast path — rebuild + recreate the relay only, skip the Caddy edit
+git pull
+sudo ./deploy/vps-caddy.sh clip.example.com --update
+
+# b) docker compose — one command, compose owns the container from then on
+git pull
+GIT_SHA=$(git rev-parse --short HEAD) CADDY_NET=<your-caddy-network> \
+  docker compose -f deploy/docker-compose.relay.yml up -d --build
+```
+
+`docker-compose.relay.yml` is relay-only and attaches to your **existing** Caddy
+network (unlike `docker-compose.yml`, which bundles its own Caddy for a fresh
+host). Find `CADDY_NET` in the script's summary (`network: ...`) or via
+`docker inspect <caddy> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'`.
+
+**One-time handoff to compose:** the first deploy created the `uniclip` container
+with `docker run`, which compose won't adopt. Switch once with
+`docker rm -f uniclip` (room metadata lives in the `uniclip_rooms` **volume**, not
+the container, so nothing is lost), then run the compose command above. After
+that, every update is just that one `docker compose … up -d --build`.
+
+Either path preserves the `uniclip_rooms` volume, so room URLs survive the
+update. `/api/version` reflects the new build (set `GIT_SHA` for an accurate sha).
+
 ## Room persistence (surviving restarts)
 
 By default the relay holds everything in memory, so a restart invalidates active

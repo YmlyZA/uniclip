@@ -1,0 +1,58 @@
+# Relay-only compose for an EXISTING external Caddy — the Option-B setup that
+# deploy/vps-caddy.sh first wires up (your Caddy already serves other sites and
+# terminates TLS). Use this for routine UPDATES so it's one command:
+#
+#   git pull
+#   GIT_SHA=$(git rev-parse --short HEAD) CADDY_NET=<your-caddy-network> \
+#     docker compose -f deploy/docker-compose.relay.yml up -d --build
+#
+# One-time handoff (only the first time you switch from vps-caddy.sh's docker-run
+# container to compose): remove the run-managed container so compose can own the
+# 'uniclip' name — room metadata lives in the uniclip_rooms VOLUME, not the
+# container, so nothing is lost:
+#
+#   docker rm -f uniclip
+#
+# then run the compose command above. From then on, updates are just that one
+# command. Caddy is never touched (the Caddyfile block vps-caddy.sh added stays).
+#
+# CADDY_NET  — the user-defined Docker network your Caddy is on (NOT 'bridge';
+#              bridge has no container-name DNS). vps-caddy.sh prints it in its
+#              summary ("network: ..."), or: docker inspect <caddy> --format \
+#              '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+# GIT_SHA    — short commit baked into /api/version (defaults to "unknown").
+#
+# For a FRESH host with no Caddy yet, use the bundled docker-compose.yml instead
+# (it brings its own Caddy on :80/:443).
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    image: uniclip:latest
+    container_name: uniclip # matches the Caddyfile's `reverse_proxy uniclip:3000`
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      LOG_LEVEL: info
+      ROOM_DB_PATH: /data/rooms.db # room metadata only — never frames/keys/history
+      # Optional self-hosted TURN (see deploy/README.md). Unset = default STUN.
+      # TURN_URLS: turn:${DOMAIN}:3478,turns:${DOMAIN}:5349,stun:${DOMAIN}:3478
+      # TURN_SECRET: ${TURN_SECRET:-}
+    volumes:
+      - uniclip_rooms:/data
+    networks:
+      - caddy
+    expose:
+      - "3000" # internal to the Caddy network only; never published to the host
+
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NET:?set CADDY_NET to your Caddy's Docker network, e.g. CADDY_NET=uniclip-net}
+
+volumes:
+  uniclip_rooms:
+    external: true # the same volume vps-caddy.sh created — reused so URLs survive
