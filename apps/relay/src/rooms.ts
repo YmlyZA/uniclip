@@ -175,16 +175,10 @@ export class RoomStore {
       if (aged) {
         for (const s of room.sockets) {
           const sock = s as {
-            send?: (d: string) => void;
             close?: (code: number, reason: string) => void;
           };
-          try {
-            sock.send?.(
-              JSON.stringify({ type: "error", code: "ROOM_EXPIRED", message: "room expired" }),
-            );
-          } catch {
-            /* ignore */
-          }
+          // The close code is the authoritative ROOM_EXPIRED signal — the client
+          // derives its own terminal error from it, so no in-band error frame here.
           try {
             sock.close?.(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
           } catch {

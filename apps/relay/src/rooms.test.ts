@@ -78,7 +78,7 @@ describe("RoomStore", () => {
     expect(s.get(r.id)).toBeUndefined(); // gone from Map AND DB (no rehydrate)
   });
 
-  it("max-age GC notifies and closes still-open sockets with ROOM_EXPIRED before deleting the room", () => {
+  it("max-age GC closes still-open sockets with ROOM_EXPIRED (no in-band error frame) before deleting the room", () => {
     const db = new Database(":memory:");
     const s = new RoomStore({ db, idleTimeoutMs: 5 * 60_000, maxAgeMs: 1_000 });
     const r = s.create("A");
@@ -87,10 +87,9 @@ describe("RoomStore", () => {
     vi.advanceTimersByTime(2_000);
     s.gc();
 
-    expect(sock.send).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(sock.send.mock.calls[0]![0] as string);
-    expect(sent).toMatchObject({ type: "error", code: "ROOM_EXPIRED" });
-
+    // The close code is the authoritative signal — the client no longer needs
+    // (and shouldn't get) a redundant in-band error frame.
+    expect(sock.send).not.toHaveBeenCalled();
     expect(sock.close).toHaveBeenCalledWith(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
 
     expect(s.get(r.id)).toBeUndefined();
