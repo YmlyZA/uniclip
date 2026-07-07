@@ -16,7 +16,12 @@ import type { Metrics } from "./metrics";
 // skipped for the current frame (memory backstop; see the engine spec §4).
 const BUFFERED_AMOUNT_MAX = 8 * 1024 * 1024;
 
-export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) {
+export function attachWebSocket(
+  app: Hono,
+  store: RoomStore,
+  metrics?: Metrics,
+  wsConnectLimiter?: SlidingWindowLimiter,
+) {
   const frameLimiter = new SlidingWindowLimiter(20, 10_000);
   // file-* frames are bursty by nature; they get a far higher budget so a
   // transfer doesn't trip the clip/delete limiter. Flow control is the real
@@ -32,11 +37,17 @@ export function attachWebSocket(app: Hono, store: RoomStore, metrics?: Metrics) 
     "/ws/:roomId",
     upgradeWebSocket((c) => {
       const roomId = c.req.param("roomId") ?? "";
+      const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      const connBlocked = wsConnectLimiter ? !wsConnectLimiter.allow(ip) : false;
       return {
         onOpen(_ev, ws) {
-          const room = store.get(roomId);
           const raw = ws.raw as ServerWebSocket<{ roomId: string }> | undefined;
           if (!raw) return;
+          if (connBlocked) {
+            raw.close(CLOSE_CODES.RATE_LIMIT, "RATE_LIMIT");
+            return;
+          }
+          const room = store.get(roomId);
           if (!room) {
             raw.close(CLOSE_CODES.ROOM_NOT_FOUND, "ROOM_NOT_FOUND");
             return;
