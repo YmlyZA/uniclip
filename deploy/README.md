@@ -120,8 +120,12 @@ slowest step is the 4-platform CLI cross-compile (it refreshes the downloadable
 — the served `/dl` binaries then stay empty until a full build:
 
 ```bash
-CLI_TARGETS="" sudo ./deploy/update.sh
+CLI_TARGETS=none sudo ./deploy/update.sh
 ```
+
+(Use `none`, not an empty string — empty build-args don't reliably propagate
+through every Docker/BuildKit version, so an empty value may silently build
+anyway. `update.sh` normalizes `CLI_TARGETS=""` to `none` for you.)
 
 ### Prebuilt images from GHCR (no host build)
 
