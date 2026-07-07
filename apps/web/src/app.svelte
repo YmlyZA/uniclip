@@ -3,6 +3,7 @@
   import { currentRoute, type Route } from "./lib/router";
   import Landing from "./routes/landing.svelte";
   import Room from "./routes/room.svelte";
+  import Footer from "./components/footer.svelte";
 
   let route: Route = $state(currentRoute());
 
@@ -18,3 +19,5 @@
 {:else if route.name === "room"}
   <Room room={route.room} />
 {/if}
+
+<Footer />

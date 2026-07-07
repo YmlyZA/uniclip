@@ -7,7 +7,7 @@ import { parseArgs } from "./args";
 import { startLanHost, joinLan } from "./lan-session";
 import { parseLanToken } from "./lan-token";
 import { attachDiagLog } from "./diag-log";
-import pkg from "../package.json";
+import { versionString } from "./version";
 
 // Re-export so tests can import { parseArgs } from "./cli" per the task spec.
 export { parseArgs } from "./args";
@@ -31,7 +31,7 @@ Options:
 export async function main() {
   const { roomUrl: arg, relay, name, relayOnly, lan, help, version, verbose } = parseArgs(process.argv.slice(2));
 
-  if (version) { console.log(pkg.version); return; }
+  if (version) { console.log(versionString()); return; }
   if (help) { console.log(USAGE); return; }
 
   // Offline LAN host.

@@ -2,7 +2,8 @@
   "extends": "@uniclip/tsconfig/node.json",
   "compilerOptions": {
     "types": ["bun"],
-    "noEmit": true
+    "noEmit": true,
+    "resolveJsonModule": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

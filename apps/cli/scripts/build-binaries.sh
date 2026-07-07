@@ -9,9 +9,18 @@ OUT="dist/dl"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+# Root package.json's version, embedded into the binary via --define below.
+# node -p resolves ../../package.json relative to this script's cwd (apps/cli/);
+# falls back to `dev` if node is unavailable in the build image.
+VERSION="$(node -p "require('../../package.json').version" 2>/dev/null || echo dev)"
+GIT_SHA="${GIT_SHA:-dev}"
+
 for t in $TARGETS; do
   echo "building uniclip-${t}..."
-  bun build --compile --target="bun-$t" src/bin.ts --outfile "$OUT/uniclip-$t"
+  bun build --compile --target="bun-$t" \
+    --define "process.env.UNICLIP_VERSION=\"$VERSION\"" \
+    --define "process.env.UNICLIP_GIT_SHA=\"$GIT_SHA\"" \
+    src/bin.ts --outfile "$OUT/uniclip-$t"
 done
 
 # Portable sha256 (sha256sum on Linux/alpine, shasum on macOS).

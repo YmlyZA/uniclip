@@ -28,6 +28,7 @@ RUN cd apps/relay && bun build src/server.ts --target=bun --outfile=dist/server.
 
 FROM oven/bun:1-alpine AS cli-builder
 WORKDIR /repo
+ARG GIT_SHA=dev
 RUN apk add --no-cache nodejs npm && npm install -g pnpm@9.12.0
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml turbo.json ./
 # patchedDependencies (pnpm-workspace.yaml / package.json) references this file;
@@ -38,10 +39,12 @@ COPY packages ./packages
 COPY apps/cli ./apps/cli
 RUN pnpm install --frozen-lockfile --filter @uniclip/cli... --filter @uniclip/cli
 ARG CLI_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64"
-RUN cd apps/cli && CLI_TARGETS="$CLI_TARGETS" sh scripts/build-binaries.sh
+RUN cd apps/cli && CLI_TARGETS="$CLI_TARGETS" GIT_SHA="$GIT_SHA" sh scripts/build-binaries.sh
 
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
+ARG GIT_SHA=dev
+ENV UNICLIP_GIT_SHA=$GIT_SHA
 COPY --from=relay-builder /repo/apps/relay/dist/server.js ./server.js
 COPY --from=web-builder /repo/apps/web/dist ./web
 COPY --from=cli-builder /repo/apps/cli/dist/dl ./web/dl
