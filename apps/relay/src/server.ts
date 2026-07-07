@@ -11,6 +11,11 @@ import rootPkg from "../../../package.json";
 const version = rootPkg.version;
 const gitSha = process.env.UNICLIP_GIT_SHA ?? "dev";
 
+const turnUrls = (process.env.TURN_URLS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const turnSecret = process.env.TURN_SECRET ?? "";
+const turnTtl = Number(process.env.TURN_TTL ?? 86400) || 86400;
+const turn = turnUrls.length > 0 && turnSecret ? { urls: turnUrls, secret: turnSecret, ttlSeconds: turnTtl } : undefined;
+
 const updateEnabled = !/^(off|0|false)$/i.test((process.env.UPDATE_CHECK ?? "").trim());
 const updateRepo = process.env.UPDATE_REPO ?? "YmlyZA/uniclip";
 const updateChecker = new UpdateChecker({
@@ -37,6 +42,7 @@ const app = buildApp({
   ipLimiter,
   version,
   gitSha,
+  ...(turn ? { turn } : {}),
   updateStatus: () => updateChecker.snapshot(),
   ...(process.env.STATIC_ROOT ? { staticRoot: process.env.STATIC_ROOT } : {}),
 });

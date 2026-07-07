@@ -7,6 +7,8 @@ import type { RoomStore } from "./rooms";
 import type { Metrics } from "./metrics";
 import { renderSetupScript } from "./installer";
 import type { UpdateSnapshot } from "./version";
+import { ICE_SERVERS } from "@uniclip/protocol";
+import { mintIceCredentials, type TurnConfig } from "./turn";
 
 const startedAt = Date.now();
 
@@ -19,6 +21,7 @@ export interface AppDeps {
   version?: string;
   gitSha?: string;
   updateStatus?: () => UpdateSnapshot;
+  turn?: TurnConfig;
 }
 
 // "<sha256>  uniclip-<os>-<arch>" lines → { "uniclip-os-arch": "<sha256>" }.
@@ -68,6 +71,10 @@ export function buildApp(deps: AppDeps): Hono {
       gitSha: deps.gitSha ?? "dev",
       ...(deps.updateStatus?.() ?? { latest: null, updateAvailable: false, checkedAt: null }),
     }),
+  );
+
+  app.get("/api/ice", (c) =>
+    c.json(deps.turn ? mintIceCredentials(deps.turn, Date.now()) : { iceServers: ICE_SERVERS }),
   );
 
   app.post("/api/room", async (c) => {
