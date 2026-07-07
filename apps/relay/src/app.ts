@@ -15,6 +15,8 @@ export interface AppDeps {
   metrics?: Metrics;
   ipLimiter?: { allow: (ip: string) => boolean };
   staticRoot?: string;
+  version?: string;
+  gitSha?: string;
 }
 
 // "<sha256>  uniclip-<os>-<arch>" lines → { "uniclip-os-arch": "<sha256>" }.
@@ -52,6 +54,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.get("/api/health", (c) =>
     c.json({
       ok: true,
+      version: deps.version ?? "dev",
       rooms: deps.roomCount(),
       uptime: Math.floor((Date.now() - startedAt) / 1000),
     }),

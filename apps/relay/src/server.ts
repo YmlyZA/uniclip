@@ -5,6 +5,10 @@ import { SlidingWindowLimiter } from "./rate-limit";
 import { Metrics } from "./metrics";
 import { staticHandler } from "./static";
 import { log } from "./log";
+import rootPkg from "../../../package.json";
+
+const version = rootPkg.version;
+const gitSha = process.env.UNICLIP_GIT_SHA ?? "dev";
 
 const store = new RoomStore({ db: process.env.ROOM_DB_PATH ?? ":memory:" });
 const metrics = new Metrics();
@@ -21,6 +25,8 @@ const app = buildApp({
   store,
   metrics,
   ipLimiter,
+  version,
+  gitSha,
   ...(process.env.STATIC_ROOT ? { staticRoot: process.env.STATIC_ROOT } : {}),
 });
 const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(

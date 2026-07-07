@@ -42,6 +42,8 @@ RUN cd apps/cli && CLI_TARGETS="$CLI_TARGETS" sh scripts/build-binaries.sh
 
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
+ARG GIT_SHA=dev
+ENV UNICLIP_GIT_SHA=$GIT_SHA
 COPY --from=relay-builder /repo/apps/relay/dist/server.js ./server.js
 COPY --from=web-builder /repo/apps/web/dist ./web
 COPY --from=cli-builder /repo/apps/cli/dist/dl ./web/dl

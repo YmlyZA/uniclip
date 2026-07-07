@@ -167,7 +167,7 @@ EOF
 
 build_image() {
   log "building uniclip:latest (first build cross-compiles the CLI binaries — slow)"
-  run docker build -t uniclip:latest "$REPO_ROOT"
+  run docker build --build-arg GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)" -t uniclip:latest "$REPO_ROOT"
 }
 
 run_relay() {
