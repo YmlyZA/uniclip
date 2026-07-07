@@ -6,6 +6,13 @@ import type { ClipboardFrame } from "@uniclip/protocol";
 import type { Database } from "bun:sqlite";
 import { RoomDb } from "./room-db";
 
+export class RoomConflictError extends Error {
+  constructor(public readonly id: string) {
+    super(`room code already in use: ${id}`);
+    this.name = "RoomConflictError";
+  }
+}
+
 export type RoomMode = "A" | "B";
 
 // How many recent clips a backfill-enabled room buffers for late joiners.
@@ -63,9 +70,11 @@ export class RoomStore {
     return this.roomDb.count(Date.now());
   }
 
-  create(mode: RoomMode, backfill = true, ephemeral = false): Room {
-    const id =
-      mode === "A" ? generateModeARoom().routingId : generateModeBCode();
+  create(mode: RoomMode, backfill = true, ephemeral = false, customId?: string): Room {
+    const id = customId ?? (mode === "A" ? generateModeARoom().routingId : generateModeBCode());
+    if (customId && (this.rooms.has(id) || this.roomDb.get(id))) {
+      throw new RoomConflictError(id);
+    }
     const now = Date.now();
     const room: Room = {
       id,

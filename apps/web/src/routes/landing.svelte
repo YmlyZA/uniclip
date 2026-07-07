@@ -1,6 +1,9 @@
 <script lang="ts">
   import { navigateToRoom } from "../lib/router";
-  import { generateModeARoom } from "@uniclip/room-code";
+  import {
+    generateModeARoom,
+    canonicalizeCode, isValidCustomCode, estimateCodeBits, strengthBand,
+  } from "@uniclip/room-code";
   import ThemeToggle from "../components/theme-toggle.svelte";
   import Toaster from "../components/toast.svelte";
   import { toast } from "../lib/toast";
@@ -12,10 +15,18 @@
   let ephemeral = $state(false);
   let joinCode = $state("");
   let creating = $state(false);
+  let customCode = $state("");
+  const canonical = $derived(canonicalizeCode(customCode));
+  const codeValid = $derived(isValidCustomCode(customCode));
+  const band = $derived(strengthBand(estimateCodeBits(canonical)));
 
   async function startRoom() {
     creating = true;
     try {
+      if (mode === "B" && customCode.trim() && !isValidCustomCode(customCode)) {
+        toast("Code must be 4–64 chars: letters, numbers, hyphens.", "warn");
+        return;
+      }
       const res = await fetch(`${relayBase}/api/room`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -23,10 +34,16 @@
           mode,
           backfill: mode === "A" && !ephemeral ? backfill : false,
           ephemeral,
+          ...(mode === "B" && customCode.trim() ? { customCode: canonical } : {}),
         }),
       });
       if (!res.ok) {
-        toast(res.status === 429 ? "Too many rooms — try again shortly" : "Couldn't create room", "warn");
+        toast(
+          res.status === 429 ? "Too many rooms — try again shortly"
+          : res.status === 409 ? "That code is taken — pick another"
+          : "Couldn't create room",
+          "warn",
+        );
         return;
       }
       const { roomId } = await res.json();
@@ -51,7 +68,12 @@
       if (routingId) navigateToRoom(routingId, secret || undefined);
     } else {
       // A bare typed code is a Mode-B room code (uppercase alphabet).
-      navigateToRoom(raw.toUpperCase());
+      const code = canonicalizeCode(raw);
+      if (!isValidCustomCode(code)) {
+        toast("That doesn't look like a valid code.", "warn");
+        return;
+      }
+      navigateToRoom(code);
     }
   }
 </script>
@@ -132,6 +154,37 @@
           </div>
         </button>
       </div>
+
+      {#if mode === "B"}
+        <div class="mt-3 rounded-field border border-border bg-surface-2 p-3">
+          <label class="block text-sm font-medium text-text" for="customcode">Choose your own code (optional)</label>
+          <input
+            id="customcode"
+            class="mt-2 w-full rounded-field border border-border bg-surface px-3 py-2 font-mono text-sm uppercase text-text placeholder:text-faint focus:border-accent focus:outline-none"
+            placeholder="e.g. PIZZA-42"
+            bind:value={customCode}
+            maxlength={64}
+          />
+          {#if customCode.trim()}
+            <div class="mt-2 flex items-center gap-2">
+              <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+                <div class="h-full transition-all
+                  {band === 'ok' ? 'w-full bg-[var(--ok)]' : band === 'weak' ? 'w-2/3 bg-[var(--warn)]' : 'w-1/3 bg-[var(--danger)]'}"></div>
+              </div>
+              <span class="text-xs font-medium
+                {band === 'ok' ? 'text-[var(--ok)]' : band === 'weak' ? 'text-[var(--warn)]' : 'text-[var(--danger)]'}">
+                {band === 'ok' ? 'Strong' : band === 'weak' ? 'Weak' : 'Very weak'}
+              </span>
+            </div>
+            {#if !codeValid}
+              <p class="mt-1 text-xs text-[var(--danger)]">4–64 chars, letters/numbers/hyphens only.</p>
+            {/if}
+          {/if}
+          <p class="mt-2 text-xs font-medium text-warn">
+            This code is your encryption key — anyone who can guess it can read this room. Longer &amp; mixed is stronger.
+          </p>
+        </div>
+      {/if}
 
       {#if mode === "A"}
         <label class="mt-3 flex cursor-pointer items-start gap-2.5 rounded-field border border-border bg-surface-2 p-3 text-sm {ephemeral ? 'opacity-50' : ''}">

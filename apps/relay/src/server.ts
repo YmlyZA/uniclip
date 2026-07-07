@@ -34,6 +34,8 @@ const ipLimiter = {
     return this.inner.allow(ip);
   },
 };
+const wsConnectLimit = Number(process.env.WS_CONNECT_IP_LIMIT ?? 30) || 30;
+const wsConnectLimiter = new SlidingWindowLimiter(wsConnectLimit, 10_000);
 
 const app = buildApp({
   roomCount: () => store.totalCount,
@@ -50,6 +52,7 @@ const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(
   app,
   store,
   metrics,
+  wsConnectLimiter,
 );
 
 setInterval(() => store.gc(), 60_000);
@@ -57,6 +60,7 @@ setInterval(() => {
   frameLimiter.sweep();
   chunkLimiter.sweep();
   ipLimiter.inner.sweep();
+  wsConnectLimiter.sweep();
 }, 60_000);
 
 const serveStatic = process.env.STATIC_ROOT
