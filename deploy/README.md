@@ -92,6 +92,18 @@ that, every update is just that one `docker compose … up -d --build`.
 Either path preserves the `uniclip_rooms` volume, so room URLs survive the
 update. `/api/version` reflects the new build (set `GIT_SHA` for an accurate sha).
 
+**Build speed.** The image build uses BuildKit dependency caching and a
+manifest-first layer order, so a rebuild that doesn't change `packages/` reuses
+the cached `pnpm install` and CLI stages — only the changed part rebuilds. The
+slowest step is the 4-platform CLI cross-compile (it refreshes the downloadable
+`/setup.sh` binaries); to skip it for a quick relay-only update, pass an empty
+`CLI_TARGETS` — the served `/dl` binaries then stay empty until a full build:
+
+```bash
+CLI_TARGETS="" sudo ./deploy/vps-caddy.sh <domain> --update
+# or:  CLI_TARGETS="" CADDY_NET=<net> docker compose -f deploy/docker-compose.relay.yml up -d --build
+```
+
 ## Room persistence (surviving restarts)
 
 By default the relay holds everything in memory, so a restart invalidates active
