@@ -1,0 +1,44 @@
+# Pull a prebuilt image from GHCR instead of building on the host — the fastest
+# update (no VPS build at all). CI (.github/workflows/ci.yml) publishes
+# ghcr.io/ymlyza/uniclip:latest on every green push to main.
+#
+# Easiest:  sudo ./deploy/update.sh --pull
+# Explicit:
+#   docker compose --env-file deploy/relay.env -f deploy/docker-compose.ghcr.yml up -d --pull always
+#
+# Pin a version instead of latest:  RELAY_IMAGE=ghcr.io/ymlyza/uniclip:0.1.0 …
+#
+# The GHCR package must be pullable by the host: make it PUBLIC once (repo →
+# Packages → uniclip → Package settings → Change visibility → Public), or keep it
+# private and `docker login ghcr.io` on the VPS with a read:packages token.
+# Same external Caddy network + uniclip_rooms volume as docker-compose.relay.yml,
+# and the same one-time `docker rm -f uniclip` handoff if you're switching from a
+# run-/build-managed container.
+services:
+  relay:
+    image: ${RELAY_IMAGE:-ghcr.io/ymlyza/uniclip:latest}
+    container_name: uniclip # matches the Caddyfile's `reverse_proxy uniclip:3000`
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      PORT: "3000"
+      LOG_LEVEL: info
+      ROOM_DB_PATH: /data/rooms.db # room metadata only — never frames/keys/history
+      # Optional self-hosted TURN (see deploy/README.md). Unset = default STUN.
+      # TURN_URLS: turn:${DOMAIN}:3478,turns:${DOMAIN}:5349,stun:${DOMAIN}:3478
+      # TURN_SECRET: ${TURN_SECRET:-}
+    volumes:
+      - uniclip_rooms:/data
+    networks:
+      - caddy
+    expose:
+      - "3000" # internal to the Caddy network only; never published to the host
+
+networks:
+  caddy:
+    external: true
+    name: ${CADDY_NET:?set CADDY_NET (deploy/relay.env) to your Caddy's Docker network, e.g. CADDY_NET=uniclip-net}
+
+volumes:
+  uniclip_rooms:
+    external: true # the same volume vps-caddy.sh created — reused so URLs survive

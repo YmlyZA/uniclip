@@ -74,8 +74,10 @@ git pull && sudo ./deploy/update.sh
 
 `update.sh` reads `CADDY_NET` from `deploy/relay.env`, computes `GIT_SHA`, and
 runs the relay-only compose stack — declarative and idempotent (it recreates the
-container only when the image actually changed). The equivalent explicit command,
-if you prefer plain `docker compose`:
+container only when the image actually changed). To skip building on the host
+entirely and pull a prebuilt image instead, add `--pull` (see [Prebuilt images
+from GHCR](#prebuilt-images-from-ghcr-no-host-build) below). The equivalent
+explicit build command, if you prefer plain `docker compose`:
 
 ```bash
 GIT_SHA=$(git rev-parse --short HEAD) \
@@ -120,6 +122,35 @@ slowest step is the 4-platform CLI cross-compile (it refreshes the downloadable
 ```bash
 CLI_TARGETS="" sudo ./deploy/update.sh
 ```
+
+### Prebuilt images from GHCR (no host build)
+
+CI (`.github/workflows/ci.yml`) builds the single-container image and pushes it to
+`ghcr.io/ymlyza/uniclip` on every **green** push to `main` (`:latest` follows
+main; a `v*` release tag also publishes `:X.Y.Z` and `:X.Y`). The host can then
+**pull** instead of building — the fastest update, no compile on the VPS at all:
+
+```bash
+sudo ./deploy/update.sh --pull
+# or: docker compose --env-file deploy/relay.env -f deploy/docker-compose.ghcr.yml up -d --pull always
+```
+
+One-time setup:
+
+- **Make the package pullable by the host.** Simplest is public: on GitHub, the
+  repo's **Packages → `uniclip` → Package settings → Change visibility → Public**.
+  (Private works too — then `docker login ghcr.io -u <you>` on the VPS with a
+  `read:packages` token.)
+- **Hand off the container** once if you're switching from a build-/run-managed
+  `uniclip`: `docker rm -f uniclip` (metadata is on the `uniclip_rooms` volume),
+  then pull.
+
+The published image is `linux/amd64`. For an arm64 host, add `linux/arm64` to
+`platforms:` in the `publish` job (multi-arch builds are slower — the non-native
+arch is emulated). Pin a version instead of latest with
+`RELAY_IMAGE=ghcr.io/ymlyza/uniclip:0.1.0 sudo ./deploy/update.sh --pull`. For the
+pull path the host only needs `deploy/*.yml` + `deploy/relay.env` (no source
+build), though keeping the repo checked out is simplest for compose-file updates.
 
 ## Room persistence (surviving restarts)
 
