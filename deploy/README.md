@@ -101,3 +101,55 @@ The running version shows in the web footer and `uniclip --version` as
 `vX.Y.Z (<git-sha>)`. An instance polls `https://api.github.com/repos/YmlyZA/uniclip/releases/latest`
 hourly (server-side); disable with `UPDATE_CHECK=off`, or point at a fork with
 `UPDATE_REPO=owner/name`.
+
+## Self-hosted TURN (optional)
+
+By default, uniclip clients use Google's STUN server (for NAT traversal) and fall
+back to the relay for media. To fully control media routing and enable peer-to-peer
+connectivity on restricted networks, deploy a self-hosted TURN server (coturn).
+
+### Setup
+
+1. **Generate a shared secret:**
+   ```bash
+   openssl rand -hex 32
+   ```
+   Save the output (e.g. `abc123def456...`).
+
+2. **Configure coturn:**
+   - Edit `deploy/coturn/turnserver.conf`
+   - Replace `REPLACE_WITH_TURN_SECRET` with your secret from step 1
+   - Replace `REPLACE_WITH_DOMAIN` with your domain (e.g. `turn.example.com`)
+   - For TLS support (`turns:`), uncomment and update the cert/key paths
+
+3. **Start coturn:**
+   ```bash
+   docker compose -f docker-compose.turn.yml up -d
+   ```
+
+4. **Configure the relay:**
+   Set these environment variables on the relay:
+   - `TURN_SECRET=<your-secret-from-step-1>`
+   - `TURN_URLS=turn:<domain>:3478,turns:<domain>:5349,stun:<domain>:3478`
+   - Optionally: `TURN_TTL=86400` (default, credential lifetime in seconds)
+
+5. **Open firewall ports:**
+   - UDP `3478` (STUN/TURN)
+   - UDP `49160–49200` (TURN media relay range)
+   - TCP `5349` (TURNS/TLS, if enabled)
+
+6. **Verify:**
+   - Use [Trickle-ICE](https://webrtc.github.io/samples/web/content/trickleice/) (webrtc.github.io/samples) to test candidate gathering — you should see a `relay` candidate.
+   - Or test with coturn's built-in tool:
+     ```bash
+     turnutils_uclient -v -t -u <username> -w <credential> <domain>
+     ```
+     where username and credential come from `GET /api/ice` on the relay.
+
+### Notes
+
+- If `TURN_*` env vars are unset, clients default to Google STUN (no regression).
+- `TURN_SECRET` is never logged or returned by the relay.
+- TURN credentials are time-limited (default `TURN_TTL=86400`, one day); the relay
+  mints fresh credentials per `GET /api/ice` call using the REST auth scheme.
+- TURN relays encrypted DTLS only — it never sees plaintext or keys.

@@ -1,0 +1,11 @@
+# Optional self-hosted TURN for uniclip. Run alongside the relay:
+#   docker compose -f docker-compose.turn.yml up -d
+# Then set on the relay:  TURN_URLS, TURN_SECRET (== static-auth-secret below).
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    restart: unless-stopped
+    network_mode: host           # TURN needs the media UDP port range on the host
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]
