@@ -82,7 +82,7 @@ export async function main() {
     }
   }
   const qr = await asciiQr(roomUrl);
-  const client = makeClient({ roomUrl, relayOnly, ...(name ? { deviceName: name } : {}) });
+  const client = await makeClient({ roomUrl, relayOnly, ...(name ? { deviceName: name } : {}) });
   if (verbose) attachDiagLog(client);
   const { waitUntilExit } = render(
     <App
