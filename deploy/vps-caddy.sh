@@ -44,10 +44,11 @@ Usage: deploy/vps-caddy.sh <domain> [--update] [--dry-run] [--yes]
 
 Deploy the uniclip relay behind an EXISTING Caddy (Option B).
   <domain>     hostname to serve, e.g. clip.example.com (or set DOMAIN=)
-  --update     routine update: rebuild the image + recreate the relay only,
-               skipping the Caddyfile edit (Caddy config untouched; the network
-               is still detected so the relay rejoins it). Use after the first
-               full deploy. (Or use docker-compose.relay.yml.)
+  --update     run-based update fallback: rebuild the image + recreate the relay
+               only, skipping the Caddyfile edit (Caddy config untouched; the
+               network is still detected so the relay rejoins it). The
+               recommended update path is docker-compose.relay.yml — see
+               deploy/README.md; don't alternate the two.
   --dry-run    print every change without making it
   --yes, -y    accept auto-detected container/network/Caddyfile without prompting
   -h, --help   this help
@@ -320,10 +321,13 @@ EOF
     printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
   cat <<EOF
 
-  Update later: git pull, then either
-                  sudo ./deploy/vps-caddy.sh $DOMAIN --update
-                or  GIT_SHA=\$(git rev-parse --short HEAD) CADDY_NET=${CADDY_NET:-<net>} \\
-                      docker compose -f deploy/docker-compose.relay.yml up -d --build
+  Update later (recommended — docker compose; hand off once, then one command):
+                  git pull
+                  docker rm -f uniclip   # one-time: this run-based container -> compose
+                  GIT_SHA=\$(git rev-parse --short HEAD) CADDY_NET=${CADDY_NET:-<net>} \\
+                    docker compose -f deploy/docker-compose.relay.yml up -d --build
+                Fallback (run-based, no handoff): sudo ./deploy/vps-caddy.sh $DOMAIN --update
+                Pick one — don't alternate (container-name conflict).
   Logs:         docker logs -f uniclip
 ──────────────────────────────────────────────────────────────
 EOF
