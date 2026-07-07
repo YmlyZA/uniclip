@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 DRY_RUN=0
 ASSUME_YES=0
+UPDATE=0
 DOMAIN="${DOMAIN:-}"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -39,10 +40,14 @@ confirm() {
 
 usage() {
   cat <<'EOF'
-Usage: deploy/vps-caddy.sh <domain> [--dry-run] [--yes]
+Usage: deploy/vps-caddy.sh <domain> [--update] [--dry-run] [--yes]
 
 Deploy the uniclip relay behind an EXISTING Caddy (Option B).
   <domain>     hostname to serve, e.g. clip.example.com (or set DOMAIN=)
+  --update     routine update: rebuild the image + recreate the relay only,
+               skipping the Caddyfile edit (Caddy config untouched; the network
+               is still detected so the relay rejoins it). Use after the first
+               full deploy. (Or use docker-compose.relay.yml.)
   --dry-run    print every change without making it
   --yes, -y    accept auto-detected container/network/Caddyfile without prompting
   -h, --help   this help
@@ -52,6 +57,7 @@ EOF
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
+      --update) UPDATE=1 ;;
       --dry-run) DRY_RUN=1 ;;
       --yes | -y) ASSUME_YES=1 ;;
       -h | --help) usage; exit 0 ;;
@@ -302,10 +308,16 @@ uniclip deployed behind Caddy.
   Relay:       container 'uniclip' (network: ${CADDY_NET:-loopback:3000})
   Persistence: volume 'uniclip_rooms' (room metadata only — never keys/frames)
 EOF
-  [ "$CADDY_MODE" = "docker" ] && printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
+  # Only after a full deploy (docker mode) did we detect + back up the Caddyfile;
+  # in --update mode CADDYFILE_HOST is empty and no backup was taken.
+  [ "$CADDY_MODE" = "docker" ] && [ -n "$CADDYFILE_HOST" ] &&
+    printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
   cat <<EOF
 
-  Update later: re-run this script (rebuilds + updates the block in place).
+  Update later: git pull, then either
+                  sudo ./deploy/vps-caddy.sh $DOMAIN --update
+                or  GIT_SHA=\$(git rev-parse --short HEAD) CADDY_NET=${CADDY_NET:-<net>} \\
+                      docker compose -f deploy/docker-compose.relay.yml up -d --build
   Logs:         docker logs -f uniclip
 ──────────────────────────────────────────────────────────────
 EOF
@@ -317,7 +329,23 @@ main() {
   detect_caddy
   if [ "$CADDY_MODE" = "docker" ]; then
     detect_network
-    detect_caddyfile
+    [ "$UPDATE" -eq 1 ] || detect_caddyfile
+  fi
+  # Routine update: the Caddyfile block is already in place from the first
+  # deploy, so rebuild the image + recreate the relay only (run_relay already
+  # removes-and-recreates), and skip the Caddyfile edit entirely.
+  if [ "$UPDATE" -eq 1 ]; then
+    # --update assumes a prior full deploy wired Caddy. If there's no 'uniclip'
+    # container yet, updating would run the relay but leave Caddy unconfigured.
+    docker ps -a --format '{{.Names}}' | grep -qx uniclip ||
+      die "no existing 'uniclip' container — run a full deploy first:
+    sudo ./deploy/vps-caddy.sh $DOMAIN   (without --update)"
+    log "update mode: rebuilding image + recreating the relay (Caddy and Caddyfile untouched)"
+    build_image
+    run_relay
+    verify
+    summary
+    return
   fi
   confirm_plan
   build_image
