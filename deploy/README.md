@@ -80,3 +80,24 @@ A bare `docker run` without `ROOM_DB_PATH` keeps the original in-memory behavior
 - Scaling beyond one machine would require sticky sessions or a shared pub/sub
   bus: the relay fans out within a single process only. v0.1 is single-instance
   by design.
+
+## Releasing
+
+Versions are semver from the root `package.json`; the deployed instance's update
+check compares against the **latest GitHub release**.
+
+To cut a release:
+```bash
+# 1. bump the root version
+npm version --no-git-tag-version <major|minor|patch>   # edits package.json only
+# 2. commit, tag, push
+git commit -am "chore: release vX.Y.Z"
+git tag vX.Y.Z && git push && git push --tags
+# 3. publish the GitHub release (this is what instances compare against)
+gh release create vX.Y.Z --title vX.Y.Z --generate-notes
+```
+
+The running version shows in the web footer and `uniclip --version` as
+`vX.Y.Z (<git-sha>)`. An instance polls `https://api.github.com/repos/YmlyZA/uniclip/releases/latest`
+hourly (server-side); disable with `UPDATE_CHECK=off`, or point at a fork with
+`UPDATE_REPO=owner/name`.
