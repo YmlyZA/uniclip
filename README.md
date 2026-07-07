@@ -4,12 +4,13 @@ End-to-end-encrypted universal clipboard. Copy on one device, paste on another �
 
 - 🔒 **End-to-end encrypted** — AES-256-GCM, keys derived with PBKDF2; the secret never leaves your device.
 - 🕳️ **Zero-knowledge relay** — the server only fans out opaque ciphertext and signaling; it stores no plaintext, keys, or frames.
-- ⚡ **Peer-to-peer fast path** — content rides a WebRTC data channel directly between devices (LAN-direct where possible); the relay is just signaling + fallback. The app-layer envelope sits on top of DTLS, so clips stay opaque on every path.
+- ⚡ **Peer-to-peer fast path** — content rides a WebRTC data channel directly between devices (LAN-direct where possible); the relay is just signaling + fallback. The app-layer envelope sits on top of DTLS, so clips stay opaque on every path. An optional self-hosted TURN server extends the Direct path to strict-NAT / cellular networks.
 - 📋 **Text, files, and synced delete** — chunked binary file transfer (drag-and-drop in the web app) and deletes that propagate to every peer.
 - 👥 **Named device roster** — see who's connected, via encrypted presence the relay can't read.
 - 🔗 **Pair by link/QR or by code** — share a room and sync instantly.
 - 🖥️ **Browser or CLI** — a zero-install web app, plus an Ink terminal client.
 - 📡 **Zero-internet LAN mode** — `uniclip --lan` hosts an offline room discovered over mDNS; two CLIs sync with no relay and no internet at all.
+- 🏠 **Self-hostable** — one container serves the API + SPA; deploy behind Caddy with automatic HTTPS and one-command updates, an optional self-hosted TURN, and built-in version/update detection.
 
 > Status: E2EE text + files + synced delete, a WebRTC peer-to-peer fast path, a browser and a CLI client, and offline LAN sync. A hobby project, not an audited product.
 
@@ -28,7 +29,7 @@ The relay's role is deliberately small: it pairs two devices, relays the WebRTC 
 Two pairing modes:
 
 - **Mode A — zero-knowledge (recommended).** The room link is `https://<host>/r/<routingId>#<secret>`. The `#secret` is the key material; browsers never send a URL fragment to the server, so the relay literally cannot decrypt your clips. Share via link or QR.
-- **Mode B — typed code.** A short 6-character code you can read aloud. The key is derived from the code, which the server sees, so it is **less secure** (the UI says so). Convenient when you can't share a link.
+- **Mode B — typed code.** A short code you can read aloud — a random 6-character one, or **your own custom code**. The key is derived from the code, which the server sees, so it is **less secure**; because the code *is* the key, the create screen shows a strength meter and warns that anyone who guesses it can read the room. Convenient when you can't share a link.
 
 The relay also serves the built SPA, so a single deployment hosts both the API and the front end.
 
@@ -50,7 +51,7 @@ Open <http://localhost:5173> in two browser windows: click **Start** in the firs
 
 ### CLI
 
-`apps/cli` is an [Ink](https://github.com/vadimdemedes/ink) terminal client (Node ≥ 22) that joins the same Mode-A rooms and syncs text, with the same end-to-end encryption and real peer-to-peer transport (via the pure-TypeScript [werift](https://github.com/shinyoshiaki/werift-webrtc) WebRTC stack). It builds to an `npx`-able `uniclip` bin; from the repo, run it through the dev script:
+`apps/cli` is an [Ink](https://github.com/vadimdemedes/ink) terminal client (Node ≥ 22) that joins the same Mode-A rooms and syncs text and files, with the same end-to-end encryption and real peer-to-peer transport (via the pure-TypeScript [werift](https://github.com/shinyoshiaki/werift-webrtc) WebRTC stack). It builds to an `npx`-able `uniclip` bin; from the repo, run it through the dev script:
 
 ```bash
 # create a room (prints a QR to scan from another device)
@@ -98,17 +99,23 @@ tailscale serve --bg 3000
 
 For two devices on the **same LAN with no internet**, skip all of this and use the CLI's `--lan` mode above.
 
-## Production (single container)
+## Self-hosting
 
-The multi-stage `Dockerfile` builds the SPA and the relay, then serves both from one Bun process:
+uniclip is built to be self-hosted and disposable. The multi-stage `Dockerfile` builds the SPA and the relay and serves both from one Bun process:
 
 ```bash
 docker build -t uniclip:dev .
 docker run --rm -p 3000:3000 uniclip:dev
-# → http://localhost:3000 serves the API, the SPA, and /api/metrics
+# → http://localhost:3000 serves the API, the SPA, /api/metrics, and /setup.sh
 ```
 
-For a self-hosted VPS, see [`deploy/`](deploy/README.md): a `docker-compose.yml` that puts the relay behind [Caddy](https://caddyserver.com) for automatic HTTPS, plus a standalone Caddyfile snippet for hosts already running Caddy. **HTTPS is required off `localhost`** — the clipboard API only works in a secure context. The relay derives its per-IP `/api/room` rate limit from `x-forwarded-for`, so **run it behind a proxy that sets a trustworthy client IP** (the provided Caddy config does); exposed directly, the header is spoofable. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
+**Behind a reverse proxy (recommended).** [`deploy/`](deploy/README.md) has a VPS setup behind [Caddy](https://caddyserver.com) with automatic HTTPS — a self-contained `docker-compose.yml` (relay + Caddy) for a fresh host, and `vps-caddy.sh` to slot the relay into a Caddy you already run. **HTTPS is required off `localhost`** (the clipboard API needs a secure context). The relay derives its per-IP `/api/room` rate limit from `x-forwarded-for`, so **run it behind a proxy that sets a trustworthy client IP** (the provided Caddy config does); exposed directly, the header is spoofable.
+
+**One-command updates.** After the first deploy, update in place with either `sudo ./deploy/vps-caddy.sh <domain> --update` or the relay-only `docker compose -f deploy/docker-compose.relay.yml up -d --build`. Room URLs survive — only room *metadata* is persisted, on a volume. See [deploy/README.md → Updating](deploy/README.md#updating-a-running-deploy).
+
+**Optional self-hosted TURN.** For Direct (peer-to-peer) connections across strict NAT / CGNAT / cellular, run coturn from [`docker-compose.turn.yml`](docker-compose.turn.yml) and set `TURN_URLS` + `TURN_SECRET` on the relay; it then mints short-lived credentials at `GET /api/ice`. Unset, clients use public STUN and TURN is simply off — nothing else changes. TURN only ever relays encrypted DTLS, so it stays zero-knowledge. See [deploy/README.md → Self-hosted TURN](deploy/README.md#self-hosted-turn-optional).
+
+**Versioning & update detection.** Each instance reports its version at `GET /api/version` and shows it in the footer; the relay can check GitHub Releases for a newer tag (`UPDATE_CHECK`, `UPDATE_REPO`) and the UI flags when an update is available. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
 
 ## Repository layout
 
