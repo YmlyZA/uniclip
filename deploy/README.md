@@ -64,20 +64,30 @@ Notes:
 ### Updating a running deploy
 
 After the first deploy the Caddyfile block is already in place, so updates only
-rebuild the image and recreate the relay — Caddy is never touched. **Use `docker
-compose` for updates** — it's declarative, idempotent (recreates only when the
-image actually changed), and the same tool as the other compose files here:
+rebuild the image and recreate the relay — Caddy is never touched. The first
+deploy writes the detected Caddy network to `deploy/relay.env` (git-ignored), so
+updates are **zero-config**:
 
 ```bash
-git pull
-GIT_SHA=$(git rev-parse --short HEAD) CADDY_NET=<your-caddy-network> \
-  docker compose -f deploy/docker-compose.relay.yml up -d --build
+git pull && sudo ./deploy/update.sh
+```
+
+`update.sh` reads `CADDY_NET` from `deploy/relay.env`, computes `GIT_SHA`, and
+runs the relay-only compose stack — declarative and idempotent (it recreates the
+container only when the image actually changed). The equivalent explicit command,
+if you prefer plain `docker compose`:
+
+```bash
+GIT_SHA=$(git rev-parse --short HEAD) \
+  docker compose --env-file deploy/relay.env -f deploy/docker-compose.relay.yml up -d --build
 ```
 
 `docker-compose.relay.yml` is relay-only and attaches to your **existing** Caddy
 network (unlike `docker-compose.yml`, which bundles its own Caddy for a fresh
-host). Find `CADDY_NET` in the first deploy's summary (`network: ...`) or via
-`docker inspect <caddy> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'`.
+host). If `deploy/relay.env` is missing (a manual setup that never ran the
+script), create it with one line — `CADDY_NET=<your-caddy-docker-network>` — or
+set `CADDY_NET` in the shell. Find the network in the first deploy's summary
+(`network: ...`) or via `docker inspect <caddy> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'`.
 
 **One-time handoff (first switch to compose).** The first deploy created the
 `uniclip` container with `docker run`, which compose won't adopt. Do this once:
@@ -108,8 +118,7 @@ slowest step is the 4-platform CLI cross-compile (it refreshes the downloadable
 — the served `/dl` binaries then stay empty until a full build:
 
 ```bash
-CLI_TARGETS="" GIT_SHA=$(git rev-parse --short HEAD) CADDY_NET=<net> \
-  docker compose -f deploy/docker-compose.relay.yml up -d --build
+CLI_TARGETS="" sudo ./deploy/update.sh
 ```
 
 ## Room persistence (surviving restarts)

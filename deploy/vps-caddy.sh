@@ -183,6 +183,22 @@ build_image() {
     -t uniclip:latest "$REPO_ROOT"
 }
 
+# Persist the detected Caddy network so `docker compose` updates (and update.sh)
+# can read CADDY_NET automatically instead of the operator re-typing it. Written
+# to deploy/relay.env (git-ignored, host-specific). Docker mode only — a host
+# Caddy has no shared network for the relay-only compose to join.
+write_relay_env() {
+  [ "$CADDY_MODE" = "docker" ] || return 0
+  local envfile="$SCRIPT_DIR/relay.env"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "[dry-run] would write $envfile (CADDY_NET=$CADDY_NET)"
+    return 0
+  fi
+  printf '# written by vps-caddy.sh — host-specific, git-ignored\nCADDY_NET=%s\n' "$CADDY_NET" >"$envfile" ||
+    warn "could not write $envfile (compose updates will need CADDY_NET set manually)"
+  [ -f "$envfile" ] && log "wrote $envfile (CADDY_NET=$CADDY_NET) for compose updates"
+}
+
 run_relay() {
   if docker ps -a --format '{{.Names}}' | grep -qx uniclip; then
     log "removing existing 'uniclip' container (idempotent update)"
@@ -322,10 +338,8 @@ EOF
   cat <<EOF
 
   Update later (recommended — docker compose; hand off once, then one command):
-                  git pull
-                  docker rm -f uniclip   # one-time: this run-based container -> compose
-                  GIT_SHA=\$(git rev-parse --short HEAD) CADDY_NET=${CADDY_NET:-<net>} \\
-                    docker compose -f deploy/docker-compose.relay.yml up -d --build
+                  docker rm -f uniclip                 # one-time: run-based container -> compose
+                  git pull && sudo ./deploy/update.sh  # reads deploy/relay.env (just written)
                 Fallback (run-based, no handoff): sudo ./deploy/vps-caddy.sh $DOMAIN --update
                 Pick one — don't alternate (container-name conflict).
   Logs:         docker logs -f uniclip
@@ -341,6 +355,7 @@ main() {
     detect_network
     [ "$UPDATE" -eq 1 ] || detect_caddyfile
   fi
+  write_relay_env   # persist CADDY_NET so compose updates are zero-config (docker mode)
   # Routine update: the Caddyfile block is already in place from the first
   # deploy, so rebuild the image + recreate the relay only (run_relay already
   # removes-and-recreates), and skip the Caddyfile edit entirely.

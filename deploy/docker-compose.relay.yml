@@ -1,10 +1,13 @@
 # Relay-only compose for an EXISTING external Caddy — the Option-B setup that
 # deploy/vps-caddy.sh first wires up (your Caddy already serves other sites and
-# terminates TLS). Use this for routine UPDATES so it's one command:
+# terminates TLS). This is the recommended path for routine UPDATES.
 #
+# Easiest:  git pull && sudo ./deploy/update.sh   (fills in CADDY_NET + GIT_SHA)
+# Explicit equivalent:
 #   git pull
-#   GIT_SHA=$(git rev-parse --short HEAD) CADDY_NET=<your-caddy-network> \
-#     docker compose -f deploy/docker-compose.relay.yml up -d --build
+#   GIT_SHA=$(git rev-parse --short HEAD) \
+#     docker compose --env-file deploy/relay.env -f deploy/docker-compose.relay.yml up -d --build
+# (CADDY_NET comes from deploy/relay.env, written by vps-caddy.sh; or set it inline.)
 #
 # One-time handoff (only the first time you switch from vps-caddy.sh's docker-run
 # container to compose): remove the run-managed container so compose can own the
