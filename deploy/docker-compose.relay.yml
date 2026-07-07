@@ -31,6 +31,10 @@ services:
       dockerfile: Dockerfile
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
+        # Set CLI_TARGETS="" to skip the slow CLI cross-compile on a fast relay
+        # update (the served /dl binaries stay empty until a full build). Default
+        # builds all four so the installer keeps working.
+        CLI_TARGETS: ${CLI_TARGETS-darwin-arm64 darwin-x64 linux-x64 linux-arm64}
     image: uniclip:latest
     container_name: uniclip # matches the Caddyfile's `reverse_proxy uniclip:3000`
     restart: unless-stopped

@@ -172,8 +172,14 @@ EOF
 }
 
 build_image() {
-  log "building uniclip:latest (first build cross-compiles the CLI binaries — slow)"
-  run docker build --build-arg GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)" -t uniclip:latest "$REPO_ROOT"
+  # BuildKit caches deps + the CLI cross-compile, so a rebuild that doesn't touch
+  # packages/ or apps/cli is fast. Set CLI_TARGETS="" to force-skip the CLI
+  # cross-compile (fast relay build; /dl binaries stay empty until a full build).
+  log "building uniclip:latest (a cold build cross-compiles the CLI binaries — slow; cached rebuilds are fast)"
+  run docker build \
+    --build-arg GIT_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+    --build-arg CLI_TARGETS="${CLI_TARGETS-darwin-arm64 darwin-x64 linux-x64 linux-arm64}" \
+    -t uniclip:latest "$REPO_ROOT"
 }
 
 run_relay() {
