@@ -3,6 +3,7 @@ import {
   generateModeBCode,
 } from "@uniclip/room-code";
 import type { ClipboardFrame } from "@uniclip/protocol";
+import { CLOSE_CODES } from "@uniclip/protocol";
 import type { Database } from "bun:sqlite";
 import { RoomDb } from "./room-db";
 
@@ -172,6 +173,24 @@ export class RoomStore {
       const idle =
         room.sockets.size === 0 && now - room.lastActivityAt > this.idleTimeoutMs;
       if (aged) {
+        for (const s of room.sockets) {
+          const sock = s as {
+            send?: (d: string) => void;
+            close?: (code: number, reason: string) => void;
+          };
+          try {
+            sock.send?.(
+              JSON.stringify({ type: "error", code: "ROOM_EXPIRED", message: "room expired" }),
+            );
+          } catch {
+            /* ignore */
+          }
+          try {
+            sock.close?.(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
+          } catch {
+            /* ignore */
+          }
+        }
         this.rooms.delete(id);
         this.roomDb.delete(id); // gone for good
       } else if (idle) {
