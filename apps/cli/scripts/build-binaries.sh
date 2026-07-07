@@ -4,10 +4,21 @@
 # runtime, so the build host needs network). TARGETS overridable for lean builds.
 set -eu
 
-TARGETS="${CLI_TARGETS:-darwin-arm64 darwin-x64 linux-x64 linux-arm64}"
+# `-` (not `:-`) so an explicitly-empty CLI_TARGETS means "skip" (fast relay
+# builds), while an unset CLI_TARGETS still gets the full default set.
+TARGETS="${CLI_TARGETS-darwin-arm64 darwin-x64 linux-x64 linux-arm64}"
 OUT="dist/dl"
 rm -rf "$OUT"
 mkdir -p "$OUT"
+
+# Empty target list: produce an empty dist/dl (+ empty checksums) so the image's
+# runtime `COPY --from=cli-builder .../dist/dl` still succeeds. The relay then
+# serves no downloadable binaries until a full build refreshes them.
+if [ -z "$TARGETS" ]; then
+  : > "$OUT/checksums.txt"
+  echo "CLI_TARGETS empty — skipped binary cross-compile (dist/dl is empty)"
+  exit 0
+fi
 
 # Root package.json's version, embedded into the binary via --define below.
 # node -p resolves ../../package.json relative to this script's cwd (apps/cli/);
