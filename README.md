@@ -115,7 +115,9 @@ docker run --rm -p 3000:3000 uniclip:dev
 
 **Optional self-hosted TURN.** For Direct (peer-to-peer) connections across strict NAT / CGNAT / cellular, run coturn from [`docker-compose.turn.yml`](docker-compose.turn.yml) and set `TURN_URLS` + `TURN_SECRET` on the relay; it then mints short-lived credentials at `GET /api/ice`. Unset, clients use public STUN and TURN is simply off — nothing else changes. TURN only ever relays encrypted DTLS, so it stays zero-knowledge. See [deploy/README.md → Self-hosted TURN](deploy/README.md#self-hosted-turn-optional).
 
-**Versioning & update detection.** Each instance reports its version at `GET /api/version` and shows it in the footer; the relay can check GitHub Releases for a newer tag (`UPDATE_CHECK`, `UPDATE_REPO`) and the UI flags when an update is available. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push; deployment is manual.
+**Prebuilt images (GHCR).** CI builds the image and pushes it to `ghcr.io/ymlyza/uniclip` on every green push to `main` (`:latest`) and on `v*` release tags (`:X.Y.Z`), so the host can pull instead of building — `sudo ./deploy/update.sh --pull` (see [deploy/README.md → Prebuilt images](deploy/README.md#prebuilt-images-from-ghcr-no-host-build)).
+
+**Versioning & update detection.** Each instance reports its version at `GET /api/version` and shows it in the footer; the relay can check GitHub Releases for a newer tag (`UPDATE_CHECK`, `UPDATE_REPO`) and the UI flags when an update is available. CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Playwright e2e on every push, and publishes the image after they pass.
 
 ## Repository layout
 

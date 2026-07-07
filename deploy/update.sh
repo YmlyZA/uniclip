@@ -1,19 +1,26 @@
 #!/usr/bin/env sh
 #
-# Zero-config relay update via docker compose. Reads CADDY_NET from
-# deploy/relay.env (written by vps-caddy.sh on the first deploy) and computes
-# GIT_SHA, so a routine update is just:
+# Zero-config relay update. Reads CADDY_NET from deploy/relay.env (written by
+# vps-caddy.sh on the first deploy) so you never re-type it.
 #
-#   git pull && sudo ./deploy/update.sh
+#   sudo ./deploy/update.sh          build from source on the host (docker-compose.relay.yml)
+#   sudo ./deploy/update.sh --pull   pull the prebuilt image from GHCR (docker-compose.ghcr.yml) — fastest
 #
-# Skip the slow CLI cross-compile (served /dl binaries stay empty until a full
-# build):  CLI_TARGETS="" sudo ./deploy/update.sh
+# Skip the slow CLI cross-compile on a source build (served /dl binaries stay
+# empty until a full build):  CLI_TARGETS="" sudo ./deploy/update.sh
 #
-# This is the recommended (docker-compose) update path — see deploy/README.md.
+# See deploy/README.md.
 set -eu
 
 DIR="$(cd "$(dirname "$0")" && pwd)"   # deploy/
 ROOT="$(cd "$DIR/.." && pwd)"          # repo root
+
+MODE=build
+case "${1:-}" in
+  "") ;;
+  --pull) MODE=pull ;;
+  *) echo "usage: update.sh [--pull]" >&2; exit 2 ;;
+esac
 
 if [ ! -f "$DIR/relay.env" ]; then
   echo "error: $DIR/relay.env not found." >&2
@@ -22,8 +29,13 @@ if [ ! -f "$DIR/relay.env" ]; then
   exit 1
 fi
 
-# Baked into /api/version. Compose reads it from the shell env at build time.
+if [ "$MODE" = "pull" ]; then
+  # Prebuilt image from GHCR — no build, no GIT_SHA (it's baked in CI).
+  exec docker compose --env-file "$DIR/relay.env" -f "$DIR/docker-compose.ghcr.yml" up -d --pull always
+fi
+
+# Build from source. GIT_SHA is baked into /api/version; compose reads it from
+# the shell env at build time.
 GIT_SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 export GIT_SHA
-
 exec docker compose --env-file "$DIR/relay.env" -f "$DIR/docker-compose.relay.yml" up -d --build
