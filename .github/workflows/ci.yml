@@ -38,6 +38,11 @@ jobs:
     needs: test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Serialize per ref so a newer main push supersedes an older in-flight publish
+    # instead of racing it — keeps :latest on the newest commit.
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
