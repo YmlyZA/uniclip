@@ -4,6 +4,7 @@
   import ModeChip from "./mode-chip.svelte";
   import ThemeToggle from "./theme-toggle.svelte";
   import RosterPopover from "./roster-popover.svelte";
+  import TransportBadge from "./transport-badge.svelte";
 
   type Device = { id: string; name: string; self: boolean };
 
@@ -66,11 +67,12 @@
       <span
         class="inline-flex items-center gap-1 rounded-field border border-warn/40 bg-warn-soft px-2 py-1 text-[11px] font-semibold text-warn"
         title="Nothing is saved on any device; items vanish after 60s"
+        aria-label="Ephemeral — nothing is saved"
       >
         <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
           <path d="M7 4h10M7 20h10M8 4c0 5 8 5 8 0M8 20c0-5 8-5 8 0" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        Ephemeral · not saved
+        <span class="hidden sm:inline">Ephemeral · not saved</span>
       </span>
     {/if}
 
@@ -88,10 +90,9 @@
         <span class="relative h-4 w-7 shrink-0 rounded-full border transition-colors {syncing ? 'border-accent bg-accent' : 'border-border-strong bg-surface-2'}">
           <span class="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full transition-all {syncing ? 'left-[0.9rem] bg-accent-fg' : 'left-0.5 bg-text/70'}"></span>
         </span>
-        Sync
       </button>
 
-      <StatusPill {status} />
+      <StatusPill {status} {transport} />
       <div class="relative">
         <button
           type="button"
@@ -115,9 +116,12 @@
           </div>
         {/if}
       </div>
+      {#if status === "connected"}
+        <span class="sm:hidden"><TransportBadge {transport} /></span>
+      {/if}
       <span
         data-testid="transport"
-        class="rounded-field px-2 py-0.5 text-[11px] {transport === 'p2p' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-faint'}"
+        class="hidden rounded-field px-2 py-0.5 text-[11px] sm:inline-flex {transport === 'p2p' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-faint'}"
         title={transport === "p2p" ? "Direct peer-to-peer (LAN when local)" : "Relayed through the server"}
       >
         {transport === "p2p" ? "Direct" : "Relayed"}
