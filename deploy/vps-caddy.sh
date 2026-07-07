@@ -308,7 +308,10 @@ uniclip deployed behind Caddy.
   Relay:       container 'uniclip' (network: ${CADDY_NET:-loopback:3000})
   Persistence: volume 'uniclip_rooms' (room metadata only — never keys/frames)
 EOF
-  [ "$CADDY_MODE" = "docker" ] && printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
+  # Only after a full deploy (docker mode) did we detect + back up the Caddyfile;
+  # in --update mode CADDYFILE_HOST is empty and no backup was taken.
+  [ "$CADDY_MODE" = "docker" ] && [ -n "$CADDYFILE_HOST" ] &&
+    printf '  Caddyfile:   %s (backup saved alongside as .bak-*)\n' "$CADDYFILE_HOST"
   cat <<EOF
 
   Update later: git pull, then either
@@ -332,6 +335,11 @@ main() {
   # deploy, so rebuild the image + recreate the relay only (run_relay already
   # removes-and-recreates), and skip the Caddyfile edit entirely.
   if [ "$UPDATE" -eq 1 ]; then
+    # --update assumes a prior full deploy wired Caddy. If there's no 'uniclip'
+    # container yet, updating would run the relay but leave Caddy unconfigured.
+    docker ps -a --format '{{.Names}}' | grep -qx uniclip ||
+      die "no existing 'uniclip' container — run a full deploy first:
+    sudo ./deploy/vps-caddy.sh $DOMAIN   (without --update)"
     log "update mode: rebuilding image + recreating the relay (Caddy and Caddyfile untouched)"
     build_image
     run_relay
