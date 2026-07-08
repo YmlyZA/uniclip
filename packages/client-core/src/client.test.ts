@@ -248,6 +248,28 @@ describe("UniclipClient", () => {
     expect(errors.some((e) => e.code === "VERSION_MISMATCH")).toBe(false);
   });
 
+  it("emits VERSION_MISMATCH at most once across repeated mismatched hellos (reconnects)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errors: { code: string; message: string }[] = [];
+    client.on("error", (e: { code: string; message: string }) => errors.push(e));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    const mismatchedHello = {
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 0,
+      backfill: false,
+      protocolVersion: PROTOCOL_VERSION + 1,
+    };
+    ws.emit(mismatchedHello); // first hello (initial connect)
+    ws.emit(mismatchedHello); // second hello (simulated reconnect against the same skewed relay)
+    expect(errors.filter((e) => e.code === "VERSION_MISMATCH")).toHaveLength(1);
+  });
+
   it("send() returns the minted msgId and ts matching the wire frame", async () => {
     const client = new UniclipClient({
       roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",

@@ -75,6 +75,7 @@ export class UniclipClient {
   private backoff = new Backoff({ baseMs: 1000, maxMs: 30_000, jitter: 0.2 });
   private disposed = false;
   private terminated = false;
+  private versionWarned = false;
   private decryptedOk = false;
   private decryptWarned = false;
   private transfers!: FileTransferManager;
@@ -266,7 +267,8 @@ export class UniclipClient {
         // PROTOCOL_VERSION when absent, so an old relay that omits the field
         // is indistinguishable from a match; this only fires when the relay
         // explicitly sends a genuinely different number.
-        if (frame.protocolVersion !== PROTOCOL_VERSION) {
+        if (frame.protocolVersion !== PROTOCOL_VERSION && !this.versionWarned) {
+          this.versionWarned = true;
           this.emit({
             kind: "error",
             code: "VERSION_MISMATCH",

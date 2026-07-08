@@ -51,6 +51,20 @@ describe("App", () => {
     await waitForRender(() => expect(lastFrame()).not.toContain("delete me"));
   });
 
+  it("uses the wire msgId returned by client.send() as the local item id, so a synced delete for it removes the CLI-authored item", async () => {
+    const client = fakeClient();
+    client.send = vi.fn(async () => ({ msgId: "wire-1", ts: 1, queued: false }));
+    const { stdin, lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
+    await tick();
+    stdin.write("my local clip");
+    await tick();
+    stdin.write("\r"); // submit
+    await waitForRender(() => expect(lastFrame()).toContain("my local clip"));
+    expect(client.send).toHaveBeenCalledWith("my local clip");
+    client.emit("delete", "wire-1"); // the REAL wire msgId, as a peer's delete frame would carry
+    await waitForRender(() => expect(lastFrame()).not.toContain("my local clip"));
+  });
+
   it("copies the selected clip to the clipboard on 'c'", async () => {
     const client = fakeClient();
     const copy = vi.fn(async () => true);
