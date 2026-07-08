@@ -9,6 +9,7 @@ import { Transfers } from "./components/Transfers";
 import { copyToClipboard } from "./clipboard";
 import { upsertTransfer, removeTransfer, type TransferRow } from "./file-transfers";
 import { readForSend, saveBlob } from "./file-io";
+import { stripTerminal } from "./sanitize-terminal";
 
 // Mirrors the web app's 32 KB text cap (aligned to @uniclip/protocol MAX_FRAME_BYTES = 64 KB).
 const MAX_TEXT_BYTES = 32 * 1024;
@@ -229,7 +230,7 @@ export function App({
       )}
       {offer ? (
         <Box paddingX={1}>
-          <Text>Incoming file <Text bold>{offer.name}</Text> ({Math.ceil(offer.size / 1024)} KB) — accept [a] / decline [d]</Text>
+          <Text>Incoming file <Text bold>{stripTerminal(offer.name)}</Text> ({Math.ceil(offer.size / 1024)} KB) — accept [a] / decline [d]</Text>
         </Box>
       ) : filePrompt ? (
         <Box paddingX={1}>
