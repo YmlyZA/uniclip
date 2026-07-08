@@ -41,6 +41,16 @@ describe("App", () => {
     await waitForRender(() => expect(lastFrame()).toContain("hello from peer"));
   });
 
+  it("removes a clip row when the client emits 'delete' for its msgId", async () => {
+    const client = fakeClient();
+    const { lastFrame } = render(<App client={client as any} roomUrl="http://h/r/abc123#sek" qr="" onExit={() => {}} />);
+    await tick();
+    client.emit("clip", "delete me", 123, "m-del");
+    await waitForRender(() => expect(lastFrame()).toContain("delete me"));
+    client.emit("delete", "m-del");
+    await waitForRender(() => expect(lastFrame()).not.toContain("delete me"));
+  });
+
   it("copies the selected clip to the clipboard on 'c'", async () => {
     const client = fakeClient();
     const copy = vi.fn(async () => true);

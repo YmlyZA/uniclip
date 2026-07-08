@@ -90,6 +90,9 @@ export function App({
     client.on("clip", (text: string, ts: number, msgId: string) =>
       setItems((prev) => [...prev, { id: msgId, text, ts, mine: false }]),
     );
+    client.on("delete", (msgId: string) =>
+      setItems((prev) => prev.filter((it) => it.id !== msgId)),
+    );
     client.on("error", (e: { message: string }) => setNote(e.message));
     client.on("file-offer", (o: { fileId: string; name: string; size: number; inline: boolean }) => {
       if (o.inline) return; // engine auto-accepts inline images; we just save on receipt
