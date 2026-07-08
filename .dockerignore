@@ -10,3 +10,6 @@ playwright-report
 test-results
 docs
 e2e
+*.key
+*.crt
+*.pem
