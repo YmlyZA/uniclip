@@ -215,4 +215,5 @@ export const CLOSE_CODES = {
   ROOM_NOT_FOUND: 4404,
   RATE_LIMIT: 4429,
   TOO_LARGE: 4413,
+  ROOM_EXPIRED: 4410,
 } as const;

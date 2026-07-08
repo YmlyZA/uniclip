@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { ServerFrameSchema, type ClientFrame, ICE_SERVERS } from "@uniclip/protocol";
+import { ServerFrameSchema, type ClientFrame, ICE_SERVERS, CLOSE_CODES } from "@uniclip/protocol";
 import { encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/crypto";
 import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
@@ -10,6 +10,15 @@ import { PresenceManager, type Device, type PresenceFrame } from "./presence";
 import type { DiagEvent } from "./diag";
 
 const MAX_QUEUE = 100;
+
+// The relay accepts the WS upgrade and only *afterward* closes it for a
+// permanent condition — so these codes arrive after onopen has already fired.
+// They mean "don't bother reconnecting"; everything else is a transient drop.
+const TERMINAL_CLOSE_INFO: Record<number, { code: string; message: string }> = {
+  [CLOSE_CODES.ROOM_NOT_FOUND]: { code: "ROOM_NOT_FOUND", message: "This room no longer exists." },
+  [CLOSE_CODES.ROOM_EXPIRED]: { code: "ROOM_EXPIRED", message: "This room has expired." },
+  [CLOSE_CODES.TOO_LARGE]: { code: "TOO_LARGE", message: "The relay rejected a frame as too large." },
+};
 
 export type Status = "connecting" | "connected" | "disconnected" | "reconnecting";
 
@@ -65,6 +74,7 @@ export class UniclipClient {
   private queue: string[] = [];
   private backoff = new Backoff({ baseMs: 1000, maxMs: 30_000, jitter: 0.2 });
   private disposed = false;
+  private terminated = false;
   private decryptedOk = false;
   private decryptWarned = false;
   private transfers!: FileTransferManager;
@@ -149,12 +159,16 @@ export class UniclipClient {
   }
 
   private openSocket(): void {
+    if (this.terminated) return; // a stray call after a terminal close must not restart the loop
     this.emit({ kind: "status", value: "connecting" });
     this.diag("ws", "info", "connecting", { event: "connecting" });
     const ws = new WebSocket(`${this.relayBase}/ws/${this.room.routingId}`);
     this.ws = ws;
     ws.onopen = () => {
-      this.backoff.reset();
+      // Don't reset backoff here: the relay accepts the WS upgrade and only
+      // afterward closes it for a permanent condition (see TERMINAL_CLOSE_INFO),
+      // so resetting on open would defeat backoff against a dead room. A `hello`
+      // is the genuine signal the connection succeeded end-to-end — reset there.
       this.diag("ws", "info", "open", { event: "open" });
     };
     ws.onmessage = (ev) => this.handleFrame(ev.data as string).catch(() => undefined);
@@ -169,7 +183,7 @@ export class UniclipClient {
       if (handledDown) return;
       handledDown = true;
       this.diag("ws", "warn", code ? `closed (${code})` : "closed", { event: "close", ...(typeof code === "number" ? { code } : {}) });
-      this.handleClose();
+      this.handleClose(code);
     };
     ws.onclose = (ev) => down((ev as CloseEvent | undefined)?.code);
     ws.onerror = () => {
@@ -178,7 +192,7 @@ export class UniclipClient {
     };
   }
 
-  private handleClose(): void {
+  private handleClose(code?: number): void {
     // File transfers are live-only — they cannot survive a socket drop. Abort
     // any in-flight transfer on EVERY close (including a transient drop during
     // auto-reconnect), not just explicit disconnect(). Otherwise a receiver's
@@ -187,6 +201,15 @@ export class UniclipClient {
     this.teardownPeer(); // a fresh hello re-arms once a peer is present again
     this.presence.stop();
     this.ws = null;
+    const terminalInfo = code !== undefined ? TERMINAL_CLOSE_INFO[code] : undefined;
+    if (terminalInfo) {
+      // Permanent condition (room gone/expired, frame too large): reconnecting
+      // would just repeat the same rejection. Stop for good.
+      this.terminated = true;
+      this.emit({ kind: "error", code: terminalInfo.code, message: terminalInfo.message });
+      this.emit({ kind: "status", value: "disconnected" });
+      return;
+    }
     if (this.disposed) {
       this.emit({ kind: "status", value: "disconnected" });
       return;
@@ -233,6 +256,9 @@ export class UniclipClient {
     const frame = result.data;
     switch (frame.type) {
       case "hello":
+        // A hello is the genuine signal the connection succeeded end-to-end
+        // (the WS upgrade alone isn't — see TERMINAL_CLOSE_INFO); reset backoff here.
+        this.backoff.reset();
         this.emit({ kind: "status", value: "connected" });
         this.emit({ kind: "peer", count: frame.peerCount });
         this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
