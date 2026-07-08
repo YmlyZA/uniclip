@@ -6,7 +6,6 @@
       "outputs": ["dist/**", "build/**"]
     },
     "test": {},
-    "lint": {},
     "typecheck": {},
     "dev": {
       "cache": false,
