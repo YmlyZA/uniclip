@@ -69,12 +69,17 @@ FROM oven/bun:1.3-alpine AS runtime
 WORKDIR /app
 ARG GIT_SHA=dev
 ENV UNICLIP_GIT_SHA=$GIT_SHA
+RUN apk add --no-cache su-exec
 COPY --from=relay-builder /repo/apps/relay/dist/server.js ./server.js
 COPY --from=web-builder /repo/apps/web/dist ./web
 COPY --from=cli-builder /repo/apps/cli/dist/dl ./web/dl
+COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENV STATIC_ROOT=/app/web
 ENV PORT=3000
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1
+# Starts as root (needed to chown a pre-existing root-owned mounted volume),
+# then su-exec drops to the non-root `bun` user for the actual server process.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "server.js"]

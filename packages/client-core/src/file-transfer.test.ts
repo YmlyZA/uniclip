@@ -185,6 +185,19 @@ describe("FileTransferManager receiver", () => {
     expect(receiver.events.some((e) => e.kind === "file-offer")).toBe(false);
   });
 
+  it("TOCTOU: two identical-fileId offers arriving back-to-back emit file-offer exactly once", async () => {
+    const key = await genKey();
+    const { mgr, events } = makeManager(key);
+    const frame = await offerFrame(key, FID, { name: "a.txt", mime: "text/plain", size: 3, chunkCount: 1, hash: "a".repeat(64), inline: false });
+    // Fire both handle() calls without awaiting the first — this races the
+    // `has(fileId)` check against the still-pending `await decrypt` of the
+    // first call, the exact window the `reserving` set must close.
+    const p1 = mgr.handle(frame);
+    const p2 = mgr.handle(frame);
+    await Promise.all([p1, p2]);
+    expect(events.filter((e) => e.kind === "file-offer")).toHaveLength(1);
+  });
+
   it("malicious-but-authenticated metadata is re-validated and dropped (chunkCount:0 / bad hash / oversize name)", async () => {
     const key = await genKey();
     for (const bad of [

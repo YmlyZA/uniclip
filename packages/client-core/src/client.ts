@@ -153,6 +153,7 @@ export class UniclipClient {
 
   async connect(): Promise<void> {
     if (this.disposed) throw new Error("client disposed");
+    if (this.terminated) throw new Error("client terminated (room gone) — create a new client");
     if (!this.key) {
       this.key = await deriveRoomKey(this.room);
     }
@@ -160,7 +161,10 @@ export class UniclipClient {
   }
 
   private openSocket(): void {
-    if (this.terminated) return; // a stray call after a terminal close must not restart the loop
+    // A stray call after a terminal close, OR after disconnect() has run, must
+    // not restart the loop — e.g. a reconnect timer scheduled just before
+    // disconnect() can still fire afterward.
+    if (this.terminated || this.disposed) return;
     this.emit({ kind: "status", value: "connecting" });
     this.diag("ws", "info", "connecting", { event: "connecting" });
     const ws = new WebSocket(`${this.relayBase}/ws/${this.room.routingId}`);

@@ -1046,5 +1046,56 @@ describe("UniclipClient presence", () => {
       expect(statuses).toContain("reconnecting");
       vi.useRealTimers();
     });
+
+    it("disconnect() during a pending reconnect timer prevents the timer from reopening a socket", async () => {
+      vi.useFakeTimers();
+      const nextSpy = vi.spyOn(Backoff.prototype, "next");
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0); // flush onopen
+      const ws1 = MockWebSocket.instances.at(-1)!;
+      const countBefore = MockWebSocket.instances.length;
+
+      ws1.onclose?.(new CloseEvent("close", { code: 1006 })); // transient drop → schedules a reconnect timer
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nextSpy).toHaveBeenCalledTimes(1);
+      const delay = nextSpy.mock.results[0]!.value as number;
+
+      client.disconnect(); // disposed just before the pending reconnect timer fires
+      await vi.advanceTimersByTimeAsync(delay + 50); // let the timer fire
+
+      expect(MockWebSocket.instances.length).toBe(countBefore); // openSocket() must no-op on disposed
+      vi.useRealTimers();
+    });
+
+    it("connect() throws once the client has entered a terminal state (ROOM_NOT_FOUND)", async () => {
+      vi.useFakeTimers();
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      const ws = MockWebSocket.instances.at(-1)!;
+
+      ws.onclose?.(new CloseEvent("close", { code: CLOSE_CODES.ROOM_NOT_FOUND }));
+      await vi.advanceTimersByTimeAsync(0);
+
+      await expect(client.connect()).rejects.toThrow(/terminated/i);
+      vi.useRealTimers();
+    });
+
+    it("connect() throws once the client has been disconnect()ed (disposed)", async () => {
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      await client.connect();
+      client.disconnect();
+      await expect(client.connect()).rejects.toThrow(/disposed/i);
+    });
   });
 });

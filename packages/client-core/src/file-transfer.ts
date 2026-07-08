@@ -67,6 +67,11 @@ interface Outgoing {
 export class FileTransferManager {
   private readonly incoming = new Map<string, Incoming>();
   private readonly outgoing = new Map<string, Outgoing>();
+  // fileIds currently mid-decrypt in onOffer, between the `has()` check and the
+  // `incoming.set()` that closes it. handleFrame dispatches per-message without
+  // awaiting between messages, so two file-offer frames with the same fileId
+  // can both pass `has()` before either sets — this closes that TOCTOU window.
+  private readonly reserving = new Set<string>();
 
   constructor(private readonly deps: FileTransferDeps) {}
 
@@ -101,33 +106,38 @@ export class FileTransferManager {
   }
 
   private async onOffer(f: Extract<ServerFrame, { type: "file-offer" }>): Promise<void> {
-    if (this.incoming.has(f.fileId)) return;
-    const key = this.deps.getKey();
-    if (!key) return;
-    let json: string;
+    if (this.incoming.has(f.fileId) || this.reserving.has(f.fileId)) return;
+    this.reserving.add(f.fileId);
     try {
-      json = await decrypt({
-        key,
-        iv: fromBase64(f.iv),
-        ciphertext: fromBase64(f.ciphertext),
-        aad: `file-offer:${this.deps.routingId}:${f.fileId}`,
-      });
-    } catch {
-      return; // wrong key / tampered → drop
+      const key = this.deps.getKey();
+      if (!key) return;
+      let json: string;
+      try {
+        json = await decrypt({
+          key,
+          iv: fromBase64(f.iv),
+          ciphertext: fromBase64(f.ciphertext),
+          aad: `file-offer:${this.deps.routingId}:${f.fileId}`,
+        });
+      } catch {
+        return; // wrong key / tampered → drop
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        return;
+      }
+      const res = OfferMetaSchema.safeParse(parsed);
+      if (!res.success) return; // malformed-but-authenticated metadata → drop
+      const meta = res.data;
+      const offer = { fileId: f.fileId, name: meta.name, mime: meta.mime, size: meta.size, chunkCount: meta.chunkCount, hash: meta.hash, inline: meta.inline };
+      this.incoming.set(f.fileId, { offer, accepted: false, buf: new Array(meta.chunkCount), received: 0, upTo: -1 });
+      this.deps.emit({ kind: "file-offer", ...offer });
+      if (meta.inline) this.acceptFile(f.fileId);
+    } finally {
+      this.reserving.delete(f.fileId);
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return;
-    }
-    const res = OfferMetaSchema.safeParse(parsed);
-    if (!res.success) return; // malformed-but-authenticated metadata → drop
-    const meta = res.data;
-    const offer = { fileId: f.fileId, name: meta.name, mime: meta.mime, size: meta.size, chunkCount: meta.chunkCount, hash: meta.hash, inline: meta.inline };
-    this.incoming.set(f.fileId, { offer, accepted: false, buf: new Array(meta.chunkCount), received: 0, upTo: -1 });
-    this.deps.emit({ kind: "file-offer", ...offer });
-    if (meta.inline) this.acceptFile(f.fileId);
   }
 
   private async onChunk(f: Extract<ServerFrame, { type: "file-chunk" }>): Promise<void> {
