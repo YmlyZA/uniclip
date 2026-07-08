@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { deriveKey } from "@uniclip/crypto";
-import { PersistedItems } from "./persist";
+import { PersistedItems, evictOldestUnpinned } from "./persist";
 
 const store: Record<string, string> = {};
 beforeEach(() => {
@@ -86,5 +86,28 @@ describe("pin", () => {
     expect((await store.load()).find((i) => i.id === "x")?.pinned).toBe(true);
     await store.setPinned("x", true); // no-op, no throw
     expect((await store.load()).find((i) => i.id === "x")?.pinned).toBe(true);
+  });
+});
+
+describe("evictOldestUnpinned", () => {
+  it("keeps a pinned item near the front and drops the oldest unpinned once over cap", () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({ id: `i${i}`, pinned: i === 2 }));
+    const withNew = [...items, { id: "new", pinned: false }]; // 51 items, one pinned near the front
+    const result = evictOldestUnpinned(withNew, 50);
+    expect(result).toHaveLength(50);
+    expect(result.find((i) => i.id === "i2")).toBeTruthy(); // pinned item survived
+    expect(result.find((i) => i.id === "i0")).toBeFalsy(); // oldest UNPINNED was dropped
+    expect(result.find((i) => i.id === "new")).toBeTruthy(); // newest survived
+  });
+
+  it("keeps everything when every item is pinned, even over cap", () => {
+    const items = Array.from({ length: 5 }, (_, i) => ({ id: `i${i}`, pinned: true }));
+    const result = evictOldestUnpinned(items, 3);
+    expect(result).toHaveLength(5);
+  });
+
+  it("is a no-op under cap", () => {
+    const items = [{ id: "a", pinned: false }];
+    expect(evictOldestUnpinned(items, 50)).toEqual(items);
   });
 });

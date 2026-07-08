@@ -98,6 +98,11 @@ export class ClipboardWatcher {
   private timer: ReturnType<typeof setInterval> | null = null;
   private last: string | null = null;
   private listeners = new Set<(text: string) => void>();
+  // Bumped by every start()/stop() call; lets a start() whose probe is still
+  // pending detect that it's been superseded (a concurrent start() won the
+  // race, or stop() ran) before it arms a — potentially unstoppable —
+  // interval. See start()/stop() below.
+  private startGen = 0;
 
   constructor(opts: ClipboardWatcherOptions = {}) {
     this.intervalMs = opts.intervalMs ?? 1000;
@@ -109,10 +114,22 @@ export class ClipboardWatcher {
 
   async start(): Promise<void> {
     if (this.timer) return;
+    const gen = ++this.startGen;
+    // Probe clipboard readability once before arming the interval: tick()
+    // swallows read failures (so it can retry silently on transient errors),
+    // which meant a denied permission never surfaced anywhere. Rejecting here
+    // lets callers (toggleWatch) catch it and toast. Intentionally not seeding
+    // `this.last` from the probe result — that would suppress the "send
+    // current clipboard on first change" behavior tick() relies on.
+    await readClipboardText();
+    // A concurrent start() won the race, or stop()/another start() superseded
+    // us while we awaited — do not arm a second (leakable) interval.
+    if (this.timer || gen !== this.startGen) return;
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
   }
 
   stop(): void {
+    this.startGen++; // invalidate any in-flight start()
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }

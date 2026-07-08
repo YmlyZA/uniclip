@@ -18,7 +18,7 @@ type Item = { id: string; text: string; ts: number; mine: boolean };
 type ClientLike = {
   on: (k: string, cb: (...a: any[]) => void) => void;
   connect: () => Promise<void> | void;
-  send: (t: string) => Promise<unknown> | unknown;
+  send: (t: string) => Promise<{ msgId: string; ts: number; queued: boolean }>;
   sendFile: (f: { name: string; mime: string; bytes: Uint8Array }) => Promise<unknown>;
   acceptFile: (id: string) => void;
   declineFile: (id: string) => void;
@@ -89,6 +89,9 @@ export function App({
     client.on("peer", (n: number) => setPeerCount(n));
     client.on("clip", (text: string, ts: number, msgId: string) =>
       setItems((prev) => [...prev, { id: msgId, text, ts, mine: false }]),
+    );
+    client.on("delete", (msgId: string) =>
+      setItems((prev) => prev.filter((it) => it.id !== msgId)),
     );
     client.on("error", (e: { message: string }) => setNote(e.message));
     client.on("file-offer", (o: { fileId: string; name: string; size: number; inline: boolean }) => {
@@ -209,13 +212,12 @@ export function App({
 
   const over = Buffer.byteLength(input, "utf8") > MAX_TEXT_BYTES;
 
-  function send() {
+  async function send() {
     const text = input.trim();
     if (!text || over) return;
-    const msgId = `local-${Date.now()}-${items.length}`;
-    setItems((prev) => [...prev, { id: msgId, text, ts: Date.now(), mine: true }]);
-    void client.send(text);
     setInput("");
+    const { msgId } = await client.send(text);
+    setItems((prev) => [...prev, { id: msgId, text, ts: Date.now(), mine: true }]);
   }
 
   const paired = peerCount >= 2 || items.length > 0;

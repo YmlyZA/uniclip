@@ -4,7 +4,7 @@ import { encrypt, toBase64 } from "@uniclip/crypto";
 import { UniclipClient } from "./client";
 import { deriveRoomKey } from "./room-key";
 import { Backoff } from "./backoff";
-import { CLOSE_CODES } from "@uniclip/protocol";
+import { CLOSE_CODES, PROTOCOL_VERSION } from "@uniclip/protocol";
 
 // Build an encrypted file-offer wire frame the way FileTransferManager.sendFile
 // does (metadata is no longer plaintext on the wire): {type,fileId,iv,ciphertext}.
@@ -203,6 +203,71 @@ describe("UniclipClient", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: true, ephemeral: true });
     expect(info).toEqual({ backfill: true, ephemeral: true });
+  });
+
+  it("emits VERSION_MISMATCH when hello.protocolVersion differs from the client's, but stays connected", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const statuses: string[] = [];
+    const errors: { code: string; message: string }[] = [];
+    client.on("status", (s: string) => statuses.push(s));
+    client.on("error", (e: { code: string; message: string }) => errors.push(e));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 0,
+      backfill: false,
+      protocolVersion: PROTOCOL_VERSION + 1,
+    });
+    expect(errors.some((e) => e.code === "VERSION_MISMATCH")).toBe(true);
+    expect(statuses).toContain("connected");
+  });
+
+  it("does not emit VERSION_MISMATCH when hello.protocolVersion matches the client's", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errors: { code: string; message: string }[] = [];
+    client.on("error", (e: { code: string; message: string }) => errors.push(e));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    ws.emit({
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 0,
+      backfill: false,
+      protocolVersion: PROTOCOL_VERSION,
+    });
+    expect(errors.some((e) => e.code === "VERSION_MISMATCH")).toBe(false);
+  });
+
+  it("emits VERSION_MISMATCH at most once across repeated mismatched hellos (reconnects)", async () => {
+    const client = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app",
+    });
+    const errors: { code: string; message: string }[] = [];
+    client.on("error", (e: { code: string; message: string }) => errors.push(e));
+    await client.connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    const mismatchedHello = {
+      type: "hello",
+      roomId: "qx7k2p",
+      peerCount: 1,
+      serverTime: 0,
+      backfill: false,
+      protocolVersion: PROTOCOL_VERSION + 1,
+    };
+    ws.emit(mismatchedHello); // first hello (initial connect)
+    ws.emit(mismatchedHello); // second hello (simulated reconnect against the same skewed relay)
+    expect(errors.filter((e) => e.code === "VERSION_MISMATCH")).toHaveLength(1);
   });
 
   it("send() returns the minted msgId and ts matching the wire frame", async () => {

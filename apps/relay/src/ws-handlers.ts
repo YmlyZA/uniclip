@@ -115,10 +115,14 @@ export function attachWebSocket(
           try {
             parsed = JSON.parse(data);
           } catch {
+            metrics?.inc("uniclip_frames_dropped_total", 1, { reason: "json" });
             return;
           }
           const result = ClientFrameSchema.safeParse(parsed);
-          if (!result.success) return;
+          if (!result.success) {
+            metrics?.inc("uniclip_frames_dropped_total", 1, { reason: "schema" });
+            return;
+          }
 
           let key = socketKeys.get(raw);
           if (!key) {

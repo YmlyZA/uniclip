@@ -11,7 +11,7 @@
   import Toaster from "../components/toast.svelte";
   import { defaultDeviceName } from "../lib/device-name";
   import { writeClipboardText, ClipboardWatcher } from "../lib/clipboard";
-  import { PersistedItems, EphemeralStore, type Item, type ItemStore } from "../lib/persist";
+  import { PersistedItems, EphemeralStore, evictOldestUnpinned, type Item, type ItemStore } from "../lib/persist";
   import { EPHEMERAL_TTL_MS, ExpiryScheduler } from "../lib/ephemeral";
   import {
     addOutgoing, applyOffer, applyProgress, applyReceived, applyError,
@@ -35,6 +35,9 @@
   const secretFrag = $derived(room.mode === "A" ? `#${room.secret}` : "");
   const shareUrl = $derived(`${httpBase}/r/${room.routingId}${secretFrag}`);
   const syncHint = "On phones, keep this tab in front — background copies can't be read.";
+  // Must match PersistedItems' cap below so the live list and the at-rest
+  // store agree on both the size and the pin-aware eviction rule.
+  const ITEMS_CAP = 50;
 
   function deviceId(): string {
     const k = "uniclip.deviceId";
@@ -69,7 +72,7 @@
 
   onMount(async () => {
     const key = await deriveRoomKey(room);
-    persist = new PersistedItems({ roomId: room.routingId, key, cap: 50 });
+    persist = new PersistedItems({ roomId: room.routingId, key, cap: ITEMS_CAP });
     items = await persist.load();
 
     // Test-only hook: ?forceRelay=1 disables WebRTC so the relay path can be
@@ -186,7 +189,7 @@
   async function addItem(text: string, ts: number, msgId: string, mine: boolean, queued = false) {
     if (items.some((i) => i.id === msgId)) return;
     const item: Item = { id: msgId, text, ts, mine, pending: queued };
-    items = [...items, item].slice(-50);
+    items = evictOldestUnpinned([...items, item], ITEMS_CAP);
     // `pending` is transient UI state — never persist it, or a reload would show
     // an already-delivered item stuck as "Queued" (the backfill clip replay is
     // dropped by the id dedup guard above, so it could never clear).
