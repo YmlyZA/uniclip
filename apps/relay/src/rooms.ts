@@ -166,8 +166,12 @@ export class RoomStore {
     if (r) r.lastActivityAt = Date.now();
   }
 
-  gc(): void {
+  // Returns counts of reaped rooms per reason, so callers can log/alert on
+  // GC activity without re-deriving it.
+  gc(): { aged: number; idle: number } {
     const now = Date.now();
+    let agedCount = 0;
+    let idleCount = 0;
     for (const [id, room] of this.rooms) {
       const aged = now - room.createdAt > this.maxAgeMs;
       const idle =
@@ -187,11 +191,14 @@ export class RoomStore {
         }
         this.rooms.delete(id);
         this.roomDb.delete(id); // gone for good
+        agedCount++;
       } else if (idle) {
         this.rooms.delete(id); // reclaim memory; DB row survives to max-age
+        idleCount++;
       }
     }
     // Sweep DB rows whose rooms expired while evicted from the Map.
     this.roomDb.deleteExpired(now);
+    return { aged: agedCount, idle: idleCount };
   }
 }

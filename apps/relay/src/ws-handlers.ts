@@ -44,11 +44,13 @@ export function attachWebSocket(
           const raw = ws.raw as ServerWebSocket<{ roomId: string }> | undefined;
           if (!raw) return;
           if (connBlocked) {
+            metrics?.inc("uniclip_ws_closed_total", 1, { code: "RATE_LIMIT" });
             raw.close(CLOSE_CODES.RATE_LIMIT, "RATE_LIMIT");
             return;
           }
           const room = store.get(roomId);
           if (!room) {
+            metrics?.inc("uniclip_ws_closed_total", 1, { code: "ROOM_NOT_FOUND" });
             raw.close(CLOSE_CODES.ROOM_NOT_FOUND, "ROOM_NOT_FOUND");
             return;
           }
@@ -107,6 +109,7 @@ export function attachWebSocket(
           const data = typeof ev.data === "string" ? ev.data : "";
           if (Buffer.byteLength(data, "utf8") > MAX_FRAME_BYTES) {
             metrics?.inc("uniclip_errors_total", 1, { code: "TOO_LARGE" });
+            metrics?.inc("uniclip_ws_closed_total", 1, { code: "TOO_LARGE" });
             raw.close(CLOSE_CODES.TOO_LARGE, "TOO_LARGE");
             return;
           }
@@ -136,6 +139,7 @@ export function attachWebSocket(
             : frameLimiter;
           if (!limiter.allow(key)) {
             metrics?.inc("uniclip_errors_total", 1, { code: "RATE_LIMIT" });
+            metrics?.inc("uniclip_ws_closed_total", 1, { code: "RATE_LIMIT" });
             raw.send(
               JSON.stringify({
                 type: "error",

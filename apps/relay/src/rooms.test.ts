@@ -52,7 +52,9 @@ describe("RoomStore", () => {
     const r = s.create("A");
     expect(s.count).toBe(1);
     vi.advanceTimersByTime(5 * 60_000 + 1);
-    s.gc();
+    const { aged, idle } = s.gc();
+    expect(aged).toBe(0);
+    expect(idle).toBe(1);
     expect(s.count).toBe(0); // evicted from the live Map
     const got = s.get(r.id);
     expect(got).toBeDefined(); // still reachable: rehydrated from the DB row
@@ -74,7 +76,9 @@ describe("RoomStore", () => {
     const r = s.create("A");
     s.get(r.id)!.sockets.add({} as never);
     vi.advanceTimersByTime(2_000);
-    s.gc();
+    const { aged, idle } = s.gc();
+    expect(aged).toBe(1);
+    expect(idle).toBe(0);
     expect(s.get(r.id)).toBeUndefined(); // gone from Map AND DB (no rehydrate)
   });
 
