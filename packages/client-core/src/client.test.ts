@@ -1,5 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseRoomUrl } from "@uniclip/room-code";
+import { encrypt, toBase64 } from "@uniclip/crypto";
 import { UniclipClient } from "./client";
+import { deriveRoomKey } from "./room-key";
+
+// Build an encrypted file-offer wire frame the way FileTransferManager.sendFile
+// does (metadata is no longer plaintext on the wire): {type,fileId,iv,ciphertext}.
+async function encryptedOffer(
+  roomUrl: string,
+  fileId: string,
+  meta: { name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean },
+) {
+  const room = parseRoomUrl(roomUrl)!;
+  const key = await deriveRoomKey(room);
+  const env = await encrypt({
+    key,
+    plaintext: JSON.stringify(meta),
+    aad: `file-offer:${room.routingId}:${fileId}`,
+  });
+  return { type: "file-offer", fileId, iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) };
+}
 
 // Minimal MockWebSocket compatible with `globalThis.WebSocket`
 class MockWebSocket {
@@ -474,7 +494,7 @@ describe("UniclipClient", () => {
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false }));
     await waitFor(() => offered !== "");
     expect(offered).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
@@ -490,7 +510,7 @@ describe("UniclipClient", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     client.on("file-offer", (o: { fileId: string }) => client.acceptFile(o.fileId));
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false }));
     await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept"));
     client.disconnect();
     expect(errs).toContain("DISCONNECTED");
@@ -552,7 +572,7 @@ describe("UniclipClient", () => {
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false }));
     await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept")); // accept registered an incoming transfer
 
     // Transient drop (NOT disconnect): onclose → handleClose → abortAll, then a

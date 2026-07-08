@@ -99,11 +99,11 @@ describe("ServerFrameSchema", () => {
       }),
     ).toThrow();
   });
-  it("defaults protocolVersion to 1 when absent", () => {
+  it("defaults protocolVersion to PROTOCOL_VERSION when absent", () => {
     const f = ServerFrameSchema.parse({
       type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false,
     });
-    expect((f as { protocolVersion: number }).protocolVersion).toBe(1);
+    expect((f as { protocolVersion: number }).protocolVersion).toBe(PROTOCOL_VERSION);
   });
 });
 
@@ -152,21 +152,26 @@ describe("ClientFrameSchema", () => {
 describe("file-transfer frames", () => {
   const fileId = "01HF000000000000000000000A"; // 26-char valid ULID shape
 
-  it("accepts a file-offer", () => {
+  it("accepts an encrypted file-offer (only {type,fileId,iv,ciphertext} on the wire)", () => {
     expect(
       ClientFrameSchema.parse({
-        type: "file-offer", fileId, name: "a.png", mime: "image/png",
-        size: 1234, chunkCount: 1, hash: "a".repeat(64), inline: true,
+        type: "file-offer", fileId, iv: "AAAA", ciphertext: "QUFB",
       }),
     ).toBeDefined();
   });
 
-  it("rejects a file-offer with a bad hash", () => {
+  it("rejects a file-offer carrying plaintext metadata (name/hash must not be on the wire)", () => {
     expect(() =>
       ClientFrameSchema.parse({
         type: "file-offer", fileId, name: "a.png", mime: "image/png",
-        size: 1, chunkCount: 1, hash: "xyz", inline: false,
+        size: 1234, chunkCount: 1, hash: "a".repeat(64), inline: true,
       }),
+    ).toThrow();
+  });
+
+  it("rejects a file-offer missing iv/ciphertext", () => {
+    expect(() =>
+      ClientFrameSchema.parse({ type: "file-offer", fileId }),
     ).toThrow();
   });
 
@@ -179,7 +184,7 @@ describe("file-transfer frames", () => {
   });
 
   it("exposes transfer constants", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+    expect(PROTOCOL_VERSION).toBe(2);
     expect(CHUNK_BYTES).toBe(32 * 1024);
     expect(MAX_FILE_BYTES).toBe(100 * 1024 * 1024);
   });
