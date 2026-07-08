@@ -26,6 +26,12 @@ services:
       - room_data:/data # room metadata DB — never holds frames, keys, or history
     expose:
       - "3000" # internal to the compose network only; never published to the host
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   caddy:
     image: caddy:2-alpine

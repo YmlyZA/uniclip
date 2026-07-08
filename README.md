@@ -138,7 +138,6 @@ docker run --rm -p 3000:3000 uniclip:dev
 pnpm typecheck        # all packages
 pnpm test             # unit tests (excludes e2e)
 pnpm test:e2e         # Playwright two-browser test
-pnpm lint
 ```
 
 Relay tests run under Bun; the rest under Node. See [`CLAUDE.md`](./CLAUDE.md) for architecture details and toolchain notes. Design specs and implementation plans live under `docs/superpowers/`.

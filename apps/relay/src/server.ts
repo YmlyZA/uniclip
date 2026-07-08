@@ -8,6 +8,16 @@ import { log } from "./log";
 import { UpdateChecker, fetchLatestRelease } from "./version";
 import rootPkg from "../../../package.json";
 
+process.on("unhandledRejection", (reason) => {
+  log.error({ err: reason }, "unhandledRejection");
+});
+process.on("uncaughtException", (err) => {
+  log.error({ err }, "uncaughtException");
+  // Undefined state after an uncaught throw — exit so the orchestrator
+  // (restart: unless-stopped + the new healthcheck) restarts a clean process.
+  process.exit(1);
+});
+
 const version = rootPkg.version;
 const gitSha = process.env.UNICLIP_GIT_SHA ?? "dev";
 
@@ -55,7 +65,13 @@ const { websocket, fetch, frameLimiter, chunkLimiter, signalLimiter } = attachWe
   wsConnectLimiter,
 );
 
-setInterval(() => store.gc(), 60_000);
+setInterval(() => {
+  const { aged, idle, expiredSockets } = store.gc();
+  if (aged > 0 || idle > 0) log.info({ aged, idle }, "gc");
+  if (expiredSockets > 0) {
+    metrics.inc("uniclip_ws_closed_total", expiredSockets, { code: "ROOM_EXPIRED" });
+  }
+}, 60_000);
 // Keep in sync with the five limiters in play (frame/chunk/signal from
 // attachWebSocket, ipLimiter.inner, wsConnectLimiter) — an unswept limiter
 // leaks a Map entry per never-reused key forever.

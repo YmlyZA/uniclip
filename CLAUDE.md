@@ -15,7 +15,6 @@ pnpm install                         # bootstrap the workspace
 pnpm typecheck                       # turbo: tsc --noEmit (svelte-check for web) across all packages
 pnpm test                            # turbo: unit tests for all packages EXCEPT e2e
 pnpm test:e2e                        # Playwright two-browser test (boots relay + web dev servers itself)
-pnpm lint                            # turbo: eslint
 
 # single package / single test file (vitest name pattern)
 pnpm --filter @uniclip/crypto test envelope

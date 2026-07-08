@@ -52,7 +52,9 @@ describe("RoomStore", () => {
     const r = s.create("A");
     expect(s.count).toBe(1);
     vi.advanceTimersByTime(5 * 60_000 + 1);
-    s.gc();
+    const { aged, idle } = s.gc();
+    expect(aged).toBe(0);
+    expect(idle).toBe(1);
     expect(s.count).toBe(0); // evicted from the live Map
     const got = s.get(r.id);
     expect(got).toBeDefined(); // still reachable: rehydrated from the DB row
@@ -74,8 +76,36 @@ describe("RoomStore", () => {
     const r = s.create("A");
     s.get(r.id)!.sockets.add({} as never);
     vi.advanceTimersByTime(2_000);
-    s.gc();
+    const { aged, idle } = s.gc();
+    expect(aged).toBe(1);
+    expect(idle).toBe(0);
     expect(s.get(r.id)).toBeUndefined(); // gone from Map AND DB (no rehydrate)
+  });
+
+  it("gc() returns expiredSockets counting every socket closed with ROOM_EXPIRED in the aged branch", () => {
+    const db = new Database(":memory:");
+    const s = new RoomStore({ db, idleTimeoutMs: 5 * 60_000, maxAgeMs: 1_000 });
+    const r = s.create("A");
+    const sockA = { send: vi.fn(), close: vi.fn() };
+    const sockB = { send: vi.fn(), close: vi.fn() };
+    s.get(r.id)!.sockets.add(sockA);
+    s.get(r.id)!.sockets.add(sockB);
+    vi.advanceTimersByTime(2_000);
+    const { aged, idle, expiredSockets } = s.gc();
+    expect(aged).toBe(1);
+    expect(idle).toBe(0);
+    expect(expiredSockets).toBe(2);
+    expect(sockA.close).toHaveBeenCalledWith(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
+    expect(sockB.close).toHaveBeenCalledWith(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
+  });
+
+  it("gc() returns expiredSockets 0 when idle GC evicts a room with no sockets", () => {
+    const s = new RoomStore({ idleTimeoutMs: 5 * 60_000, maxAgeMs: 24 * 3600_000 });
+    s.create("A");
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    const { idle, expiredSockets } = s.gc();
+    expect(idle).toBe(1);
+    expect(expiredSockets).toBe(0);
   });
 
   it("max-age GC closes still-open sockets with ROOM_EXPIRED (no in-band error frame) before deleting the room", () => {

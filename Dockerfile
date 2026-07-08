@@ -29,7 +29,7 @@ COPY packages ./packages
 COPY apps/web ./apps/web
 RUN pnpm --filter @uniclip/web build
 
-FROM oven/bun:1-alpine AS relay-builder
+FROM oven/bun:1.3-alpine AS relay-builder
 WORKDIR /repo
 # oven/bun's alpine npm doesn't ship the corepack shim, so install pnpm directly.
 RUN apk add --no-cache nodejs npm && npm install -g pnpm@9.12.0
@@ -46,7 +46,7 @@ COPY packages ./packages
 COPY apps/relay ./apps/relay
 RUN cd apps/relay && bun build src/server.ts --target=bun --outfile=dist/server.js
 
-FROM oven/bun:1-alpine AS cli-builder
+FROM oven/bun:1.3-alpine AS cli-builder
 WORKDIR /repo
 ARG GIT_SHA=dev
 RUN apk add --no-cache nodejs npm && npm install -g pnpm@9.12.0
@@ -65,7 +65,7 @@ COPY apps/cli ./apps/cli
 ARG CLI_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64"
 RUN cd apps/cli && CLI_TARGETS="$CLI_TARGETS" GIT_SHA="$GIT_SHA" sh scripts/build-binaries.sh
 
-FROM oven/bun:1-alpine AS runtime
+FROM oven/bun:1.3-alpine AS runtime
 WORKDIR /app
 ARG GIT_SHA=dev
 ENV UNICLIP_GIT_SHA=$GIT_SHA
@@ -75,4 +75,6 @@ COPY --from=cli-builder /repo/apps/cli/dist/dl ./web/dl
 ENV STATIC_ROOT=/app/web
 ENV PORT=3000
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1
 CMD ["bun", "run", "server.js"]

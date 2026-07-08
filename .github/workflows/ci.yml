@@ -26,9 +26,30 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright browsers
         run: pnpm --filter @uniclip/e2e exec playwright install --with-deps chromium
       - run: pnpm --filter @uniclip/e2e test
+
+  # PR-only: build the image (no push) to catch Dockerfile / stage-COPY-manifest
+  # breakage before merge, instead of only discovering it on the `publish` job.
+  docker-build-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            CLI_TARGETS=none
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # Build the single-container image and push it to GHCR — only after tests pass,
   # only on main pushes and v* tags (never on PRs). The VPS then pulls instead of
