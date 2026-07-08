@@ -305,6 +305,7 @@ export class UniclipClient {
         await this.presence.handlePresence(frame);
         return;
       case "error":
+        if (via !== "ws") return;
         this.emit({ kind: "error", code: frame.code, message: frame.message });
         return;
     }

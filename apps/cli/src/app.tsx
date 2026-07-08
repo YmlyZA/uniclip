@@ -247,7 +247,7 @@ export function App({
       )}
       <Transfers rows={transfers} />
       {note ? (
-        <Box paddingX={1}><Text dimColor>{note}</Text></Box>
+        <Box paddingX={1}><Text dimColor>{stripTerminal(note)}</Text></Box>
       ) : null}
       <Footer />
     </Box>
