@@ -1,5 +1,5 @@
 import { ulid } from "ulid";
-import { ServerFrameSchema, type ClientFrame, ICE_SERVERS, CLOSE_CODES } from "@uniclip/protocol";
+import { ServerFrameSchema, type ClientFrame, ICE_SERVERS, CLOSE_CODES, PROTOCOL_VERSION } from "@uniclip/protocol";
 import { encrypt, decrypt, toBase64, fromBase64, ReplaySet } from "@uniclip/crypto";
 import { parseRoomUrl, type ParsedRoom } from "@uniclip/room-code";
 import { Backoff } from "./backoff";
@@ -260,6 +260,22 @@ export class UniclipClient {
         // (the WS upgrade alone isn't — see TERMINAL_CLOSE_INFO); reset backoff here.
         this.backoff.reset();
         this.emit({ kind: "status", value: "connected" });
+        // Advisory only: a version-skewed peer (old CLI binary, stale web tab)
+        // should keep syncing text — never disconnect or block on this. The
+        // relay's hello.protocolVersion is a zod field defaulted to
+        // PROTOCOL_VERSION when absent, so an old relay that omits the field
+        // is indistinguishable from a match; this only fires when the relay
+        // explicitly sends a genuinely different number.
+        if (frame.protocolVersion !== PROTOCOL_VERSION) {
+          this.emit({
+            kind: "error",
+            code: "VERSION_MISMATCH",
+            message:
+              frame.protocolVersion > PROTOCOL_VERSION
+                ? "This device is out of date — please update to keep syncing files."
+                : "The relay is running an older protocol — some features may not work.",
+          });
+        }
         this.emit({ kind: "peer", count: frame.peerCount });
         this.emit({ kind: "room", backfill: frame.backfill, ephemeral: frame.ephemeral });
         this.flushQueue();
