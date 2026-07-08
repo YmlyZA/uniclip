@@ -3,6 +3,8 @@ import { parseRoomUrl } from "@uniclip/room-code";
 import { encrypt, toBase64 } from "@uniclip/crypto";
 import { UniclipClient } from "./client";
 import { deriveRoomKey } from "./room-key";
+import { Backoff } from "./backoff";
+import { CLOSE_CODES } from "@uniclip/protocol";
 
 // Build an encrypted file-offer wire frame the way FileTransferManager.sendFile
 // does (metadata is no longer plaintext on the wire): {type,fileId,iv,ciphertext}.
@@ -848,5 +850,136 @@ describe("UniclipClient presence", () => {
     await new Promise((r) => setTimeout(r, 20));
     // No new roster entry for A (the p2p-delivered presence was dropped).
     expect(rosters.slice(before).some((r: any) => r.some((d: any) => d.id === "A"))).toBe(false);
+  });
+
+  describe("reconnect backoff + terminal close codes", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("does not reset backoff on bare open — repeated opens-without-hello back off exponentially", async () => {
+      vi.useFakeTimers();
+      const resetSpy = vi.spyOn(Backoff.prototype, "reset");
+      const nextSpy = vi.spyOn(Backoff.prototype, "next");
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0); // flush ws1's onopen microtask
+      expect(resetSpy).not.toHaveBeenCalled(); // open alone must NOT reset backoff
+
+      const ws1 = MockWebSocket.instances.at(-1)!;
+      ws1.onclose?.(new CloseEvent("close", { code: 1006 })); // transient drop, hello never arrived
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nextSpy).toHaveBeenCalledTimes(1);
+      const delay1 = nextSpy.mock.results[0]!.value as number;
+      await vi.advanceTimersByTimeAsync(delay1 + 50); // fire the reconnect timer → ws2
+
+      const ws2 = MockWebSocket.instances.at(-1)!;
+      expect(ws2).not.toBe(ws1);
+      await vi.advanceTimersByTimeAsync(0); // flush ws2's onopen microtask
+      expect(resetSpy).not.toHaveBeenCalled(); // still never reset — no hello yet
+
+      ws2.onclose?.(new CloseEvent("close", { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nextSpy).toHaveBeenCalledTimes(2);
+      const delay2 = nextSpy.mock.results[1]!.value as number;
+      expect(delay2).toBeGreaterThan(delay1); // backoff grew — proof it was never reset by a bare open
+      vi.useRealTimers();
+    });
+
+    it("a hello frame resets backoff — a drop right after hello reconnects at baseMs again", async () => {
+      vi.useFakeTimers();
+      const resetSpy = vi.spyOn(Backoff.prototype, "reset");
+      const nextSpy = vi.spyOn(Backoff.prototype, "next");
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      const ws1 = MockWebSocket.instances.at(-1)!;
+
+      // Bump the backoff up twice, without a hello, so the doubled range
+      // (~1600-2400) can't overlap the base range (~800-1200) checked below.
+      ws1.onclose?.(new CloseEvent("close", { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(0);
+      const delay1 = nextSpy.mock.results[0]!.value as number;
+      await vi.advanceTimersByTimeAsync(delay1 + 50);
+
+      const ws2 = MockWebSocket.instances.at(-1)!;
+      await vi.advanceTimersByTimeAsync(0);
+      ws2.onclose?.(new CloseEvent("close", { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(0);
+      const delay2 = nextSpy.mock.results[1]!.value as number; // doubled range, ~1600-2400
+      await vi.advanceTimersByTimeAsync(delay2 + 50);
+
+      const ws3 = MockWebSocket.instances.at(-1)!;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(resetSpy).not.toHaveBeenCalled();
+
+      // A hello resets it back to baseMs.
+      ws3.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+      expect(resetSpy).toHaveBeenCalledTimes(1);
+
+      ws3.onclose?.(new CloseEvent("close", { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(0);
+      const postHelloDelay = nextSpy.mock.results[2]!.value as number; // back to base range, ~800-1200
+      expect(postHelloDelay).toBeLessThan(delay2); // reset, not the continued doubled sequence
+      vi.useRealTimers();
+    });
+
+    it.each([
+      ["ROOM_NOT_FOUND", CLOSE_CODES.ROOM_NOT_FOUND],
+      ["ROOM_EXPIRED", CLOSE_CODES.ROOM_EXPIRED],
+      ["TOO_LARGE", CLOSE_CODES.TOO_LARGE],
+    ] as const)(
+      "terminal close code %s (%d) stops reconnecting and emits a terminal error + disconnected status",
+      async (expectedCode, code) => {
+        vi.useFakeTimers();
+        const client = new UniclipClient({
+          roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+          relayBase: "wss://uniclip.app",
+        });
+        const statuses: string[] = [];
+        const errors: { code: string; message: string }[] = [];
+        client.on("status", (s: string) => statuses.push(s));
+        client.on("error", (e: { code: string; message: string }) => errors.push(e));
+        await client.connect();
+        await vi.advanceTimersByTimeAsync(0);
+        const ws = MockWebSocket.instances.at(-1)!;
+        const countBefore = MockWebSocket.instances.length;
+
+        ws.onclose?.(new CloseEvent("close", { code }));
+        await vi.advanceTimersByTimeAsync(60_000); // long enough that a normal backoff would have fired
+
+        expect(MockWebSocket.instances.length).toBe(countBefore); // no reconnect socket opened
+        expect(statuses.at(-1)).toBe("disconnected");
+        expect(errors.some((e) => e.code === expectedCode)).toBe(true);
+        vi.useRealTimers();
+      },
+    );
+
+    it("RATE_LIMIT (4429) is not terminal — it still reconnects", async () => {
+      vi.useFakeTimers();
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      const statuses: string[] = [];
+      client.on("status", (s: string) => statuses.push(s));
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      const ws1 = MockWebSocket.instances.at(-1)!;
+      const countBefore = MockWebSocket.instances.length;
+
+      ws1.onclose?.(new CloseEvent("close", { code: CLOSE_CODES.RATE_LIMIT }));
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(MockWebSocket.instances.length).toBeGreaterThan(countBefore); // reconnect socket opened
+      expect(statuses).toContain("reconnecting");
+      vi.useRealTimers();
+    });
   });
 });

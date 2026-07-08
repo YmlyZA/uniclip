@@ -48,7 +48,7 @@ const app = buildApp({
   updateStatus: () => updateChecker.snapshot(),
   ...(process.env.STATIC_ROOT ? { staticRoot: process.env.STATIC_ROOT } : {}),
 });
-const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(
+const { websocket, fetch, frameLimiter, chunkLimiter, signalLimiter } = attachWebSocket(
   app,
   store,
   metrics,
@@ -56,9 +56,13 @@ const { websocket, fetch, frameLimiter, chunkLimiter } = attachWebSocket(
 );
 
 setInterval(() => store.gc(), 60_000);
+// Keep in sync with the five limiters in play (frame/chunk/signal from
+// attachWebSocket, ipLimiter.inner, wsConnectLimiter) — an unswept limiter
+// leaks a Map entry per never-reused key forever.
 setInterval(() => {
   frameLimiter.sweep();
   chunkLimiter.sweep();
+  signalLimiter.sweep();
   ipLimiter.inner.sweep();
   wsConnectLimiter.sweep();
 }, 60_000);

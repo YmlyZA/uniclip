@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RoomStore, RECENT_CAP, TOMBSTONE_CAP } from "./rooms";
 import { ulid } from "ulid";
 import { Database } from "bun:sqlite";
+import { CLOSE_CODES } from "@uniclip/protocol";
 
 const frame = () => ({
   type: "clip" as const,
@@ -75,6 +76,23 @@ describe("RoomStore", () => {
     vi.advanceTimersByTime(2_000);
     s.gc();
     expect(s.get(r.id)).toBeUndefined(); // gone from Map AND DB (no rehydrate)
+  });
+
+  it("max-age GC closes still-open sockets with ROOM_EXPIRED (no in-band error frame) before deleting the room", () => {
+    const db = new Database(":memory:");
+    const s = new RoomStore({ db, idleTimeoutMs: 5 * 60_000, maxAgeMs: 1_000 });
+    const r = s.create("A");
+    const sock = { send: vi.fn(), close: vi.fn() };
+    s.get(r.id)!.sockets.add(sock);
+    vi.advanceTimersByTime(2_000);
+    s.gc();
+
+    // The close code is the authoritative signal — the client no longer needs
+    // (and shouldn't get) a redundant in-band error frame.
+    expect(sock.send).not.toHaveBeenCalled();
+    expect(sock.close).toHaveBeenCalledWith(CLOSE_CODES.ROOM_EXPIRED, "ROOM_EXPIRED");
+
+    expect(s.get(r.id)).toBeUndefined();
   });
 
   it("Mode A defaults to backfill enabled; explicit false disables it", () => {

@@ -1,0 +1,87 @@
+<h2>Mobile header — current vs. proposed</h2>
+<p class="subtitle">On a ~375px phone, below the <code>sm</code> breakpoint (640px) text labels collapse to icons/dots. Desktop (≥ sm) keeps the full labels unchanged. Does this direction feel right?</p>
+
+<style>
+  .phone { width: 360px; margin: 0 auto; border: 1px solid var(--border, #444); border-radius: 22px; overflow: hidden; background: #0f1115; }
+  .phone .bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #222; flex-wrap: wrap; }
+  .brand { display:flex; align-items:center; gap:6px; font-weight:800; color:#e7e9ee; font-size:15px; }
+  .brand .mk { width:22px;height:22px;border-radius:6px;background:#6c8cff;display:grid;place-items:center;color:#0f1115;font-size:12px; }
+  .spacer { margin-left:auto; }
+  .grp { display:flex; align-items:center; gap:7px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; border:1px solid #2a2f3a; background:#171a21; border-radius:999px; padding:3px 9px; font-size:12px; color:#aeb4c0; }
+  .dot { width:9px;height:9px;border-radius:50%; }
+  .sw { width:26px;height:15px;border-radius:999px;background:#3a7d54;position:relative; }
+  .sw::after{content:"";position:absolute;top:2px;left:13px;width:11px;height:11px;border-radius:50%;background:#dff5e6;}
+  .ic { width:28px;height:28px;border-radius:8px;border:1px solid #2a2f3a;background:#171a21;display:grid;place-items:center;color:#aeb4c0;font-size:14px; }
+  .caption{ text-align:center;font-size:12px;color:#8a90a0;margin-top:6px; }
+  .crowd { outline:1px dashed #a05; outline-offset:2px; }
+  .legend{ font-size:12.5px;color:#aeb4c0;line-height:1.9;margin-top:8px; }
+  .legend b{ color:#e7e9ee; }
+  .tag{ display:inline-block;min-width:74px;color:#7f8696; }
+</style>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Current — labels ride along (wraps / crowds)</div>
+    <div class="mockup-body">
+      <div class="phone">
+        <div class="bar">
+          <span class="brand"><span class="mk">▢</span> uniclip</span>
+          <span class="spacer"></span>
+          <span class="pill crowd"><span class="sw"></span> Sync</span>
+          <span class="pill crowd"><span class="dot" style="background:#37d67a"></span> Secure&nbsp;channel</span>
+          <span class="pill">👥 3</span>
+          <span class="pill crowd">Direct</span>
+          <span class="ic">☾</span>
+          <span class="ic">⤴</span>
+          <span class="ic">⋮</span>
+        </div>
+      </div>
+      <div class="caption">7 label-bearing items → wraps to 2 rows on a phone</div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Proposed — icons/dots on mobile (one clean row)</div>
+    <div class="mockup-body">
+      <div class="phone">
+        <div class="bar">
+          <span class="brand"><span class="mk">▢</span> uniclip</span>
+          <span class="spacer"></span>
+          <span class="ic" style="border-color:#3a7d54"><span class="sw"></span></span>
+          <span class="ic"><span class="dot" style="background:#37d67a"></span></span>
+          <span class="pill">👥 3</span>
+          <span class="ic" style="color:#8ea2ff">⚡</span>
+          <span class="ic">☾</span>
+          <span class="ic">⤴</span>
+          <span class="ic">⋮</span>
+        </div>
+      </div>
+      <div class="caption">same actions, icon-only → fits one row; tap/aria keep meaning</div>
+    </div>
+  </div>
+</div>
+
+<div class="legend section">
+  <div><span class="tag">Sync</span> the word drops → just the toggle switch (green = on). aria-label + desktop tooltip keep it clear.</div>
+  <div><span class="tag">Status</span> "Secure channel"/"Connecting"/… label drops → colored dot only (green/amber/red already encodes state; the connected dot keeps its live "ping").</div>
+  <div><span class="tag">Transport</span> "Direct"/"Relayed" text → an icon (⚡ direct / ☁ relayed). <b>This one's the open question — see below.</b></div>
+  <div><span class="tag">Ephemeral</span> "Ephemeral · not saved" → the hourglass icon only (when the room is ephemeral).</div>
+  <div><span class="tag">Desktop</span> unchanged — full labels stay at ≥ sm.</div>
+</div>
+
+<h3 class="section">The one real choice: the Direct/Relayed indicator on mobile</h3>
+<div class="options">
+  <div class="option" data-choice="icon" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>Keep it — as an icon</h3><p>⚡ Direct / ☁ Relayed, tap or long-press for the label. Keeps the info visible, one glyph wide.</p></div>
+  </div>
+  <div class="option" data-choice="merge" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>Merge into the status dot</h3><p>One indicator: dot colour = connection state, a small ring/bolt overlay = Direct vs Relayed. Densest, but subtler.</p></div>
+  </div>
+  <div class="option" data-choice="hide" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content"><h3>Hide it on mobile</h3><p>Direct/Relayed is secondary; drop it entirely below sm to reclaim the most space (still shown on desktop).</p></div>
+  </div>
+</div>

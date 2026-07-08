@@ -1,0 +1,77 @@
+<h2>Merged status + transport dot — SVG treatments</h2>
+<p class="subtitle">Real icon set (thin-stroke SVG, matching your theme/share icons — no emoji). The status dot's <b>colour</b> = connection state (green connected / amber connecting / red offline). Option B folds transport in: some mark distinguishes <b>Direct</b> (P2P) from <b>Relayed</b>. Which treatment reads best?</p>
+
+<style>
+  .phone { width: 360px; margin: 0 auto 4px; border: 1px solid #333; border-radius: 22px; overflow: hidden; background: #0f1115; }
+  .bar { display:flex; align-items:center; gap:9px; padding:11px 13px; border-bottom:1px solid #222; }
+  .brand{ display:flex;align-items:center;gap:6px;font-weight:800;color:#e7e9ee;font-size:15px; }
+  .brand .mk{ width:22px;height:22px;border-radius:6px;background:#6c8cff;display:grid;place-items:center; }
+  .spacer{ margin-left:auto; }
+  .ic{ width:30px;height:30px;border-radius:8px;border:1px solid #2a2f3a;background:#171a21;display:grid;place-items:center;color:#aeb4c0; }
+  .sw{ width:26px;height:15px;border-radius:999px;background:#3a7d54;position:relative; }
+  .sw::after{ content:"";position:absolute;top:2px;left:13px;width:11px;height:11px;border-radius:50%;background:#dff5e6; }
+  .rosterpill{ display:inline-flex;align-items:center;gap:5px;color:#aeb4c0;font-size:12px;padding:2px 6px; }
+  svg{ display:block; }
+  .zoom{ display:flex;gap:26px;align-items:center;justify-content:center;padding:14px 0; }
+  .zi{ text-align:center;color:#aeb4c0;font-size:12px; }
+  .zi .big{ transform:scale(2.2);transform-origin:center;margin:18px auto 26px;width:16px;height:16px; }
+  .zlab{ color:#e7e9ee;font-weight:600; }
+  .caption{ text-align:center;font-size:12px;color:#8a90a0; }
+</style>
+
+<!-- proposed header with REAL svg icons, for icon-style approval -->
+<div class="mockup">
+  <div class="mockup-header">Proposed mobile header — your SVG icon set</div>
+  <div class="mockup-body">
+    <div class="phone"><div class="bar">
+      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none" width="14" height="14"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="#0f1115" stroke-width="1.9"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" stroke="#0f1115" stroke-width="1.9"/></svg></span> uniclip</span>
+      <span class="spacer"></span>
+      <span class="ic" style="border-color:#3a7d54"><span class="sw"></span></span>
+      <!-- merged dot (ring treatment shown here as the default) -->
+      <span class="ic"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="8" fill="none" stroke="#37d67a" stroke-width="1.5" opacity="0.5"/><circle cx="12" cy="12" r="4" fill="#37d67a"/></svg></span>
+      <span class="rosterpill"><svg viewBox="0 0 24 24" fill="none" width="15" height="15"><circle cx="9" cy="8" r="3" stroke="#aeb4c0" stroke-width="1.7"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0" stroke="#aeb4c0" stroke-width="1.7" stroke-linecap="round"/><path d="M16 6a3 3 0 0 1 0 5.5M16.5 19a5.5 5.5 0 0 0-2-4.3" stroke="#aeb4c0" stroke-width="1.7" stroke-linecap="round"/></svg> 3</span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" width="17" height="17"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.3 6.3 0 0 0 10.5 10.5Z" stroke="#aeb4c0" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" width="17" height="17"><circle cx="6" cy="12" r="2.4" stroke="#aeb4c0" stroke-width="1.7"/><circle cx="17" cy="6" r="2.4" stroke="#aeb4c0" stroke-width="1.7"/><circle cx="17" cy="18" r="2.4" stroke="#aeb4c0" stroke-width="1.7"/><path d="M8.1 11l6.8-3.8M8.1 13l6.8 3.8" stroke="#aeb4c0" stroke-width="1.7"/></svg></span>
+      <span class="ic"><svg viewBox="0 0 24 24" fill="#aeb4c0" width="17" height="17"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></span>
+    </div></div>
+    <div class="caption">switch · <b>merged dot</b> · roster · theme · share · more — all SVG, one row</div>
+  </div>
+</div>
+
+<h3 class="section">Direct vs Relayed on the dot — pick a treatment</h3>
+<div class="options">
+  <div class="option" data-choice="ring" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Concentric ring = Direct</h3>
+      <div class="zoom">
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="8" fill="none" stroke="#37d67a" stroke-width="1.6" opacity="0.55"/><circle cx="12" cy="12" r="4" fill="#37d67a"/></svg></div><span class="zlab">Direct</span><br>dot + halo ring</div>
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4" fill="#37d67a"/></svg></div><span class="zlab">Relayed</span><br>bare dot</div>
+      </div>
+      <p>Direct gets a halo. Clean, but note: connected already pulses a "ping" halo — the static ring may compete with it.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="bolt" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Bolt badge = Direct</h3>
+      <div class="zoom">
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="10" cy="13" r="4" fill="#37d67a"/><path d="M17 4l-4 6h3l-3.5 6" fill="none" stroke="#8ea2ff" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></div><span class="zlab">Direct</span><br>dot + small bolt</div>
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4" fill="#37d67a"/></svg></div><span class="zlab">Relayed</span><br>bare dot</div>
+      </div>
+      <p>A tiny SVG lightning at the corner = P2P/fast. Most legible "direct" signal; no clash with the ping.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hollow" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Filled = Direct, hollow = Relayed</h3>
+      <div class="zoom">
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4.5" fill="#37d67a"/></svg></div><span class="zlab">Direct</span><br>filled</div>
+        <div class="zi"><div class="big"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4.5" fill="none" stroke="#37d67a" stroke-width="2"/></svg></div><span class="zlab">Relayed</span><br>ring only</div>
+      </div>
+      <p>Solid vs outline. Subtle and clean, but a hollow dot can read as "not fully connected" at a glance.</p>
+    </div>
+  </div>
+</div>
+<p class="caption section">All keep the dot's colour for connection state + an aria-label like "Connected · Direct (P2P)". Desktop still shows the separate Direct/Relayed text pill.</p>
