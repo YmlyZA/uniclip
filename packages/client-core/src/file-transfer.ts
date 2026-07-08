@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ulid } from "ulid";
 import {
   type ClientFrame,
@@ -9,7 +10,23 @@ import {
   CREDIT_WINDOW,
   STALL_TIMEOUT_MS,
 } from "@uniclip/protocol";
-import { encryptBytes, decryptBytes, sha256Hex, toBase64, fromBase64 } from "@uniclip/crypto";
+import { encrypt, decrypt, encryptBytes, decryptBytes, sha256Hex, toBase64, fromBase64 } from "@uniclip/crypto";
+
+// The file-offer metadata is now encrypted on the wire (only {iv,ciphertext}
+// reaches the relay), so the wire schema no longer validates these fields.
+// Re-validate the DECRYPTED metadata here with the same constraints the old
+// plaintext FileOfferSchema enforced — a room member could otherwise send
+// malformed but correctly-encrypted metadata. Drop on any failure.
+const OfferMetaSchema = z
+  .object({
+    name: z.string().max(255),
+    mime: z.string().max(255),
+    size: z.number().int().nonnegative(),
+    chunkCount: z.number().int().positive(),
+    hash: z.string().regex(/^[0-9a-f]{64}$/), // match protocol's Sha256Hex
+    inline: z.boolean(),
+  })
+  .strict();
 
 export type FileClientEvent =
   | { kind: "file-offer"; fileId: string; name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean }
@@ -83,12 +100,34 @@ export class FileTransferManager {
     for (const [fileId] of this.outgoing) this.fail(fileId, "DISCONNECTED", reason);
   }
 
-  private onOffer(f: Extract<ServerFrame, { type: "file-offer" }>): void {
+  private async onOffer(f: Extract<ServerFrame, { type: "file-offer" }>): Promise<void> {
     if (this.incoming.has(f.fileId)) return;
-    const offer = { fileId: f.fileId, name: f.name, mime: f.mime, size: f.size, chunkCount: f.chunkCount, hash: f.hash, inline: f.inline };
-    this.incoming.set(f.fileId, { offer, accepted: false, buf: new Array(f.chunkCount), received: 0, upTo: -1 });
+    const key = this.deps.getKey();
+    if (!key) return;
+    let json: string;
+    try {
+      json = await decrypt({
+        key,
+        iv: fromBase64(f.iv),
+        ciphertext: fromBase64(f.ciphertext),
+        aad: `file-offer:${this.deps.routingId}:${f.fileId}`,
+      });
+    } catch {
+      return; // wrong key / tampered → drop
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return;
+    }
+    const res = OfferMetaSchema.safeParse(parsed);
+    if (!res.success) return; // malformed-but-authenticated metadata → drop
+    const meta = res.data;
+    const offer = { fileId: f.fileId, name: meta.name, mime: meta.mime, size: meta.size, chunkCount: meta.chunkCount, hash: meta.hash, inline: meta.inline };
+    this.incoming.set(f.fileId, { offer, accepted: false, buf: new Array(meta.chunkCount), received: 0, upTo: -1 });
     this.deps.emit({ kind: "file-offer", ...offer });
-    if (f.inline) this.acceptFile(f.fileId);
+    if (meta.inline) this.acceptFile(f.fileId);
   }
 
   private async onChunk(f: Extract<ServerFrame, { type: "file-chunk" }>): Promise<void> {
@@ -174,10 +213,12 @@ export class FileTransferManager {
       fileId, bytes: file.bytes, name: file.name, mime: file.mime,
       chunkCount, nextChunk: 0, ackedUpTo: -1, started: false, pumping: false, stall: null,
     });
-    const ok = this.deps.send({
-      type: "file-offer", fileId, name: file.name, mime: file.mime,
-      size: file.bytes.length, chunkCount, hash, inline,
+    const env = await encrypt({
+      key,
+      plaintext: JSON.stringify({ name: file.name, mime: file.mime, size: file.bytes.length, chunkCount, hash, inline }),
+      aad: `file-offer:${this.deps.routingId}:${fileId}`,
     });
+    const ok = this.deps.send({ type: "file-offer", fileId, iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) });
     if (!ok) { this.fail(fileId, "DISCONNECTED", "not connected"); return null; }
     // The stall timer is NOT armed here: an offer can sit waiting to be accepted
     // (a non-inline file, or a peer that's slow to tap Accept) without that being

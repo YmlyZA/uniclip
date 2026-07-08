@@ -1,7 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseRoomUrl } from "@uniclip/room-code";
+import { encrypt, toBase64 } from "@uniclip/crypto";
 import { UniclipClient } from "./client";
+import { deriveRoomKey } from "./room-key";
 import { Backoff } from "./backoff";
 import { CLOSE_CODES } from "@uniclip/protocol";
+
+// Build an encrypted file-offer wire frame the way FileTransferManager.sendFile
+// does (metadata is no longer plaintext on the wire): {type,fileId,iv,ciphertext}.
+async function encryptedOffer(
+  roomUrl: string,
+  fileId: string,
+  meta: { name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean },
+) {
+  const room = parseRoomUrl(roomUrl)!;
+  const key = await deriveRoomKey(room);
+  const env = await encrypt({
+    key,
+    plaintext: JSON.stringify(meta),
+    aad: `file-offer:${room.routingId}:${fileId}`,
+  });
+  return { type: "file-offer", fileId, iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) };
+}
 
 // Minimal MockWebSocket compatible with `globalThis.WebSocket`
 class MockWebSocket {
@@ -476,7 +496,7 @@ describe("UniclipClient", () => {
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false }));
     await waitFor(() => offered !== "");
     expect(offered).toBe("01ARZ3NDEKTSV4RRFFQ69G5FAV");
   });
@@ -492,7 +512,7 @@ describe("UniclipClient", () => {
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
     client.on("file-offer", (o: { fileId: string }) => client.acceptFile(o.fileId));
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false }));
     await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept"));
     client.disconnect();
     expect(errs).toContain("DISCONNECTED");
@@ -554,7 +574,7 @@ describe("UniclipClient", () => {
     await client.connect();
     const ws = MockWebSocket.instances.at(-1)!;
     ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
-    ws.emit({ type: "file-offer", fileId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false });
+    ws.emit(await encryptedOffer("https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr", "01ARZ3NDEKTSV4RRFFQ69G5FAV", { name: "f", mime: "text/plain", size: 1, chunkCount: 2, hash: "a".repeat(64), inline: false }));
     await waitFor(() => ws.sent.some((s) => JSON.parse(s).type === "file-accept")); // accept registered an incoming transfer
 
     // Transient drop (NOT disconnect): onclose → handleClose → abortAll, then a
@@ -725,6 +745,50 @@ describe("UniclipClient transport seam", () => {
     await new Promise((r) => setTimeout(r, 30));
     // POSITIVE CONTROL: setRemoteDescription WAS called (guard allows "ws" frames)
     expect(srdCallsB.length).toBeGreaterThan(countBeforeB);
+
+    clientA.disconnect();
+    clientB.disconnect();
+  });
+
+  it("via-guard: an error frame arriving over the p2p pipe is dropped; the same frame over WS still emits", async () => {
+    // Regression guard for the `if (via !== "ws") return;` check on the "error"
+    // case in handleFrame. A malicious room peer could otherwise send an
+    // { type: "error", message } frame over the open RTCDataChannel to have
+    // its unsanitized message surface as content (e.g. terminal-escape
+    // injection in a CLI's note display).
+    const errorFrame = { type: "error", code: "RATE_LIMIT", message: "\x1b]52;c;ZXZpbA==\x07boom" };
+
+    // --- P2P leg: deliver the error frame OVER THE CHANNEL ---
+    const clientA = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
+    });
+    const errorsA: unknown[] = [];
+    clientA.on("error", (e: unknown) => errorsA.push(e));
+    await clientA.connect();
+    const wsA = MockWebSocket.instances.at(-1)!;
+    wsA.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsA.emit({ type: "rtc-hello", from: MIN_FROM }); // clientA becomes initiator → channel opens
+    await waitFor(() => (clientA as any).transport === "p2p");
+    const ch = (clientA as any).peer?.channel;
+    ch?.onmessage?.({ data: JSON.stringify(errorFrame) });
+    await new Promise((r) => setTimeout(r, 30));
+    // GUARD: no error event surfaced from the p2p-delivered frame
+    expect(errorsA.length).toBe(0);
+
+    // --- WS leg (positive control): same error frame over the WS IS emitted ---
+    const clientB = new UniclipClient({
+      roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+      relayBase: "wss://uniclip.app", iceServers: [], createConnection: fakePcFactory(),
+    });
+    const errorsB: unknown[] = [];
+    clientB.on("error", (e: unknown) => errorsB.push(e));
+    await clientB.connect();
+    const wsB = MockWebSocket.instances.at(-1)!;
+    wsB.emit({ type: "hello", roomId: "qx7k2p", peerCount: 2, serverTime: 0, backfill: false });
+    wsB.emit(errorFrame); // delivered over the WS (via = "ws")
+    await waitFor(() => errorsB.length > 0);
+    expect(errorsB[0]).toEqual({ code: "RATE_LIMIT", message: errorFrame.message });
 
     clientA.disconnect();
     clientB.disconnect();

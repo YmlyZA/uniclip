@@ -27,7 +27,7 @@ async function mintRoom(): Promise<string> {
   return ((await res.json()) as { roomId: string }).roomId;
 }
 function offer(fileId: string) {
-  return { type: "file-offer", fileId, name: "f", mime: "image/png", size: 10, chunkCount: 1, hash: "a".repeat(64), inline: false };
+  return { type: "file-offer", fileId, iv: "AAAA", ciphertext: "QUFB" };
 }
 function chunk(fileId: string, index: number) {
   return { type: "file-chunk", fileId, index, isFinal: true, iv: "AAAA", ciphertext: "QUFB" };

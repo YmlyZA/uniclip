@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const MAX_FRAME_BYTES = 64 * 1024;
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // Binary transfer (Phase 2 v0.2). CHUNK_BYTES is sized so a base64+JSON frame
 // stays under MAX_FRAME_BYTES; the rest are engine tunables.
@@ -39,18 +39,18 @@ export const DeleteFrameSchema = z
 
 export type DeleteFrame = z.infer<typeof DeleteFrameSchema>;
 
-const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
-
+// The offer metadata (name/mime/size/chunkCount/hash/inline) is encrypted with
+// the room key under AAD `file-offer:${routingId}:${fileId}` and travels only
+// as opaque {iv,ciphertext} — the relay never sees the filename, size, or hash.
+// The receiver re-validates the decrypted metadata (see client-core's
+// OfferMetaSchema, which mirrors these constraints). `iv`/`ciphertext` use the
+// same validators as every other encrypted frame (clip, chunk, presence).
 export const FileOfferSchema = z
   .object({
     type: z.literal("file-offer"),
     fileId: z.string().regex(ULID_REGEX),
-    name: z.string().max(255),
-    mime: z.string().max(255),
-    size: z.number().int().nonnegative(),
-    chunkCount: z.number().int().positive(),
-    hash: Sha256Hex,
-    inline: z.boolean(),
+    iv: Base64,
+    ciphertext: Base64,
   })
   .strict();
 

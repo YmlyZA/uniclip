@@ -1,7 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ClientFrame, ServerFrame } from "@uniclip/protocol";
-import { encryptBytes, sha256Hex, toBase64 } from "@uniclip/crypto";
+import { encrypt, encryptBytes, sha256Hex, toBase64 } from "@uniclip/crypto";
 import { FileTransferManager, type FileClientEvent } from "./file-transfer";
+
+type OfferMeta = { name: string; mime: string; size: number; chunkCount: number; hash: string; inline: boolean };
+
+// Seal offer metadata the way sendFile now does: encrypted under the room key
+// with AAD `file-offer:${routingId}:${fileId}`, only {iv,ciphertext} on the wire.
+async function offerFrame(
+  key: CryptoKey,
+  fileId: string,
+  meta: OfferMeta,
+  opts: { routingId?: string; plaintext?: string } = {},
+): Promise<ServerFrame> {
+  const rid = opts.routingId ?? RID;
+  const env = await encrypt({
+    key,
+    plaintext: opts.plaintext ?? JSON.stringify(meta),
+    aad: `file-offer:${rid}:${fileId}`,
+  });
+  return { type: "file-offer", fileId, iv: toBase64(env.iv), ciphertext: toBase64(env.ciphertext) } as ServerFrame;
+}
 
 const RID = "qx7k2p";
 const FID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -59,7 +78,7 @@ describe("FileTransferManager receiver", () => {
     const hash = await sha256Hex(data as Uint8Array<ArrayBuffer>);
     const cfs = await chunks(key, FID, data);
 
-    await mgr.handle({ type: "file-offer", fileId: FID, name: "a.txt", mime: "text/plain", size: data.length, chunkCount: cfs.length, hash, inline: false } as ServerFrame);
+    await mgr.handle(await offerFrame(key, FID, { name: "a.txt", mime: "text/plain", size: data.length, chunkCount: cfs.length, hash, inline: false }));
     expect(events.some((e) => e.kind === "file-offer" && e.fileId === FID)).toBe(true);
 
     mgr.acceptFile(FID);
@@ -75,7 +94,7 @@ describe("FileTransferManager receiver", () => {
   it("auto-accepts an inline offer (sends file-accept without a consumer call)", async () => {
     const key = await genKey();
     const { mgr, sent } = makeManager(key);
-    await mgr.handle({ type: "file-offer", fileId: FID_INLINE, name: "p.png", mime: "image/png", size: 4, chunkCount: 1, hash: "a".repeat(64), inline: true } as ServerFrame);
+    await mgr.handle(await offerFrame(key, FID_INLINE, { name: "p.png", mime: "image/png", size: 4, chunkCount: 1, hash: "a".repeat(64), inline: true }));
     expect(sent.some((f) => f.type === "file-accept" && f.fileId === FID_INLINE)).toBe(true);
   });
 
@@ -85,7 +104,7 @@ describe("FileTransferManager receiver", () => {
     const data = new TextEncoder().encode("xyz");
     const cfs = await chunks(key, FID, data);
     (cfs[0] as { ciphertext: string }).ciphertext = toBase64(new Uint8Array([1, 2, 3, 4, 5]).buffer);
-    await mgr.handle({ type: "file-offer", fileId: FID, name: "f", mime: "text/plain", size: 3, chunkCount: cfs.length, hash: await sha256Hex(data as Uint8Array<ArrayBuffer>), inline: false } as ServerFrame);
+    await mgr.handle(await offerFrame(key, FID, { name: "f", mime: "text/plain", size: 3, chunkCount: cfs.length, hash: await sha256Hex(data as Uint8Array<ArrayBuffer>), inline: false }));
     mgr.acceptFile(FID);
     for (const c of cfs) await mgr.handle(c);
     expect(events.some((e) => e.kind === "file-error" && e.code === "AUTH_FAILED")).toBe(true);
@@ -96,10 +115,91 @@ describe("FileTransferManager receiver", () => {
     const { mgr, events } = makeManager(key);
     const data = new TextEncoder().encode("abc");
     const cfs = await chunks(key, FID, data);
-    await mgr.handle({ type: "file-offer", fileId: FID, name: "f", mime: "text/plain", size: 3, chunkCount: cfs.length, hash: "b".repeat(64), inline: false } as ServerFrame);
+    await mgr.handle(await offerFrame(key, FID, { name: "f", mime: "text/plain", size: 3, chunkCount: cfs.length, hash: "b".repeat(64), inline: false }));
     mgr.acceptFile(FID);
     for (const c of cfs) await mgr.handle(c);
     expect(events.some((e) => e.kind === "file-error" && e.code === "HASH_MISMATCH")).toBe(true);
+  });
+
+  // ── Encrypted-offer security properties ──────────────────────────────────
+  it("SECURITY: the offer frame carries no plaintext metadata (name/hash not on the wire)", async () => {
+    const key = await genKey();
+    const { mgr, sent } = makeManager(key);
+    const data = new TextEncoder().encode("secret file contents");
+    await mgr.sendFile({ name: "passport_scan.jpg", mime: "image/jpeg", bytes: data });
+    const offer = sent.find((f) => f.type === "file-offer") as Record<string, unknown>;
+    expect(offer).toBeDefined();
+    // ONLY these four keys travel on the wire.
+    expect(Object.keys(offer).sort()).toEqual(["ciphertext", "fileId", "iv", "type"]);
+    const wire = JSON.stringify(offer);
+    expect(wire).not.toContain("passport_scan.jpg");
+    expect(wire).not.toContain("image/jpeg");
+    const hash = await sha256Hex(data as Uint8Array<ArrayBuffer>);
+    expect(wire).not.toContain(hash);
+  });
+
+  it("roundtrip: a receiver with the same key/routingId decrypts the offer metadata", async () => {
+    const key = await genKey();
+    const sender = makeManager(key);
+    const data = new TextEncoder().encode("hi there");
+    const hash = await sha256Hex(data as Uint8Array<ArrayBuffer>);
+    await sender.mgr.sendFile({ name: "notes.txt", mime: "text/plain", bytes: data });
+    const offer = sender.sent.find((f) => f.type === "file-offer") as ServerFrame;
+
+    const receiver = makeManager(key);
+    await receiver.mgr.handle(offer);
+    const evt = receiver.events.find((e) => e.kind === "file-offer") as Extract<FileClientEvent, { kind: "file-offer" }>;
+    expect(evt).toBeDefined();
+    expect(evt.name).toBe("notes.txt");
+    expect(evt.mime).toBe("text/plain");
+    expect(evt.size).toBe(data.length);
+    expect(evt.chunkCount).toBe(1);
+    expect(evt.hash).toBe(hash);
+    expect(evt.inline).toBe(false);
+  });
+
+  it("wrong key: a receiver with a different key drops the offer (no emit, no incoming)", async () => {
+    const senderKey = await genKey();
+    const { mgr: sender, sent } = makeManager(senderKey);
+    await sender.sendFile({ name: "f.txt", mime: "text/plain", bytes: new TextEncoder().encode("data") });
+    const offer = sent.find((f) => f.type === "file-offer") as ServerFrame;
+
+    const otherKey = await genKey();
+    const receiver = makeManager(otherKey);
+    await receiver.mgr.handle(offer);
+    expect(receiver.events.some((e) => e.kind === "file-offer")).toBe(false);
+    // Dropped cleanly: a subsequent accept is a no-op (no incoming entry).
+    receiver.mgr.acceptFile((offer as { fileId: string }).fileId);
+    expect(receiver.sent.some((f) => f.type === "file-accept")).toBe(false);
+  });
+
+  it("tampered ciphertext: an offer that fails to decrypt is dropped", async () => {
+    const key = await genKey();
+    const sender = makeManager(key);
+    await sender.mgr.sendFile({ name: "f.txt", mime: "text/plain", bytes: new TextEncoder().encode("data") });
+    const offer = { ...(sender.sent.find((f) => f.type === "file-offer") as Record<string, unknown>) };
+    offer.ciphertext = toBase64(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer);
+
+    const receiver = makeManager(key);
+    await receiver.mgr.handle(offer as ServerFrame);
+    expect(receiver.events.some((e) => e.kind === "file-offer")).toBe(false);
+  });
+
+  it("malicious-but-authenticated metadata is re-validated and dropped (chunkCount:0 / bad hash / oversize name)", async () => {
+    const key = await genKey();
+    for (const bad of [
+      JSON.stringify({ name: "f", mime: "text/plain", size: 1, chunkCount: 0, hash: "a".repeat(64), inline: false }),
+      JSON.stringify({ name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "nothex", inline: false }),
+      JSON.stringify({ name: "x".repeat(256), mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false }),
+      JSON.stringify({ name: "f", mime: "text/plain", size: -1, chunkCount: 1, hash: "a".repeat(64), inline: false }),
+      JSON.stringify({ name: "f", mime: "text/plain", size: 1, chunkCount: 1, hash: "a".repeat(64), inline: false, extra: 1 }),
+      "not json at all",
+    ]) {
+      const receiver = makeManager(key);
+      const frame = await offerFrame(key, FID, {} as OfferMeta, { plaintext: bad });
+      await receiver.mgr.handle(frame);
+      expect(receiver.events.some((e) => e.kind === "file-offer")).toBe(false);
+    }
   });
 });
 
