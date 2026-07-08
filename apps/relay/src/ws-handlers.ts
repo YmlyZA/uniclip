@@ -11,6 +11,7 @@ import {
 import type { RoomStore } from "./rooms";
 import { SlidingWindowLimiter } from "./rate-limit";
 import type { Metrics } from "./metrics";
+import { clientIp } from "./client-ip";
 
 // Per-socket fan-out backpressure ceiling. A socket buffered beyond this is
 // skipped for the current frame (memory backstop; see the engine spec §4).
@@ -37,7 +38,7 @@ export function attachWebSocket(
     "/ws/:roomId",
     upgradeWebSocket((c) => {
       const roomId = c.req.param("roomId") ?? "";
-      const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+      const ip = clientIp(c.req.header("x-forwarded-for"));
       const connBlocked = wsConnectLimiter ? !wsConnectLimiter.allow(ip) : false;
       return {
         onOpen(_ev, ws) {

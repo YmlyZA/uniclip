@@ -11,6 +11,7 @@ import type { UpdateSnapshot } from "./version";
 import { ICE_SERVERS } from "@uniclip/protocol";
 import { mintIceCredentials, type TurnConfig } from "./turn";
 import { canonicalizeCode, isValidCustomCode } from "@uniclip/room-code";
+import { clientIp } from "./client-ip";
 
 const startedAt = Date.now();
 
@@ -83,7 +84,7 @@ export function buildApp(deps: AppDeps): Hono {
 
   app.post("/api/room", async (c) => {
     if (!deps.store) return c.json({ error: "store not configured" }, 500);
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const ip = clientIp(c.req.header("x-forwarded-for"));
     if (deps.ipLimiter && !deps.ipLimiter.allow(ip)) {
       return c.json({ error: "rate limited" }, 429);
     }
