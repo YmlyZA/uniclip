@@ -66,8 +66,11 @@ const { websocket, fetch, frameLimiter, chunkLimiter, signalLimiter } = attachWe
 );
 
 setInterval(() => {
-  const { aged, idle } = store.gc();
-  if (aged > 0 || idle > 0) log.debug({ aged, idle }, "gc");
+  const { aged, idle, expiredSockets } = store.gc();
+  if (aged > 0 || idle > 0) log.info({ aged, idle }, "gc");
+  if (expiredSockets > 0) {
+    metrics.inc("uniclip_ws_closed_total", expiredSockets, { code: "ROOM_EXPIRED" });
+  }
 }, 60_000);
 // Keep in sync with the five limiters in play (frame/chunk/signal from
 // attachWebSocket, ipLimiter.inner, wsConnectLimiter) — an unswept limiter
