@@ -3,6 +3,7 @@
   import { readClipboard, readClipboardText } from "../lib/clipboard";
   import { toast } from "../lib/toast";
   import { MAX_TEXT_BYTES, textByteLength, withinLimit } from "../lib/limits";
+  import { isSendKey } from "../lib/composer-keys";
   import ComposerModal from "./composer-modal.svelte";
 
   let {
@@ -96,7 +97,7 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (isSendKey(e)) {
       e.preventDefault();
       send();
     }

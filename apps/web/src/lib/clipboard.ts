@@ -109,6 +109,13 @@ export class ClipboardWatcher {
 
   async start(): Promise<void> {
     if (this.timer) return;
+    // Probe clipboard readability once before arming the interval: tick()
+    // swallows read failures (so it can retry silently on transient errors),
+    // which meant a denied permission never surfaced anywhere. Rejecting here
+    // lets callers (toggleWatch) catch it and toast. Intentionally not seeding
+    // `this.last` from the probe result — that would suppress the "send
+    // current clipboard on first change" behavior tick() relies on.
+    await readClipboardText();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
   }
 

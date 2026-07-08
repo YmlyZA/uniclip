@@ -34,7 +34,12 @@ describe("readClipboardText / writeClipboardText", () => {
 
 describe("ClipboardWatcher", () => {
   it("emits 'change' when poll detects new text", async () => {
-    readSpy.mockResolvedValueOnce("a").mockResolvedValueOnce("b").mockResolvedValueOnce("b");
+    // First value is consumed by start()'s permission probe; ticks see the rest.
+    readSpy
+      .mockResolvedValueOnce("probe")
+      .mockResolvedValueOnce("a")
+      .mockResolvedValueOnce("b")
+      .mockResolvedValueOnce("b");
     const changes: string[] = [];
     const w = new ClipboardWatcher({ intervalMs: 100 });
     w.on((text) => changes.push(text));
@@ -53,6 +58,23 @@ describe("ClipboardWatcher", () => {
     await w.start();
     await vi.advanceTimersByTimeAsync(200);
     expect(changes).toEqual(["same"]);
+    w.stop();
+  });
+
+  it("start() probes clipboard readability and rejects on permission denial", async () => {
+    readSpy.mockRejectedValueOnce(new Error("NotAllowedError"));
+    const w = new ClipboardWatcher({ intervalMs: 100 });
+    await expect(w.start()).rejects.toThrow();
+  });
+
+  it("start() resolves and arms the timer when the probe succeeds", async () => {
+    readSpy.mockResolvedValueOnce("probe").mockResolvedValueOnce("x");
+    const changes: string[] = [];
+    const w = new ClipboardWatcher({ intervalMs: 100 });
+    w.on((t) => changes.push(t));
+    await expect(w.start()).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(changes).toEqual(["x"]);
     w.stop();
   });
 });

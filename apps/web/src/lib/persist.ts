@@ -19,6 +19,22 @@ export interface PersistOptions {
   cap: number;
 }
 
+/**
+ * Drop oldest UNPINNED items until within cap. Pinned items are protected
+ * (the cap is a soft limit on unpinned); if everything is pinned, keep all.
+ * Pure and side-effect free so both the persisted store and the live
+ * in-memory list (room.svelte) apply the exact same eviction rule.
+ */
+export function evictOldestUnpinned<T extends { pinned?: boolean }>(items: T[], cap: number): T[] {
+  const next = [...items];
+  while (next.length > cap) {
+    const idx = next.findIndex((i) => !i.pinned);
+    if (idx === -1) break; // every remaining item is pinned → keep all
+    next.splice(idx, 1);
+  }
+  return next;
+}
+
 /** Storage contract shared by the persisting and ephemeral implementations. */
 export interface ItemStore {
   load(): Promise<Item[]>;
@@ -43,18 +59,8 @@ export class PersistedItems implements ItemStore {
     if (!this.loaded) await this.load();
     if (this.items.some((i) => i.id === item.id)) return; // dedup by frame identity
     this.items.push(item);
-    this.evict();
+    this.items = evictOldestUnpinned(this.items, this.opts.cap);
     await this.save();
-  }
-
-  // Drop oldest UNPINNED items until within cap. Pinned items are protected
-  // (the cap is a soft limit on unpinned); if everything is pinned, keep all.
-  private evict(): void {
-    while (this.items.length > this.opts.cap) {
-      const idx = this.items.findIndex((i) => !i.pinned);
-      if (idx === -1) break;
-      this.items.splice(idx, 1);
-    }
   }
 
   async setPinned(id: string, pinned: boolean): Promise<void> {
