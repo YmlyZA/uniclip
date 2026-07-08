@@ -216,7 +216,6 @@ export class UniclipClient {
       return;
     }
     if (this.disposed) {
-      this.emit({ kind: "status", value: "disconnected" });
       return;
     }
     const delay = this.backoff.next();
@@ -472,5 +471,10 @@ export class UniclipClient {
     this.presence.stop();
     this.ws?.close();
     this.ws = null;
+    // Emit here (not in handleClose's disposed branch) so this fires exactly
+    // once whether or not a socket was open — if it was already null (e.g. a
+    // pending-reconnect window), `ws?.close()` above is a no-op and
+    // handleClose never runs, so this was previously never emitted.
+    this.emit({ kind: "status", value: "disconnected" });
   }
 }

@@ -3,7 +3,11 @@
 uniclip ships as **one stateless container** (`../Dockerfile`) that serves the
 SPA, the JSON API, and the WebSocket on a single port (`:3000`). The relay holds
 no plaintext, no keys, and persists nothing — rooms live in memory and are
-garbage-collected by idle timeout / max age.
+garbage-collected by idle timeout / max age. The image runs on `oven/bun:1.3-alpine`,
+executes as the non-root `bun` user (a `su-exec` entrypoint starts as root only
+long enough to `chown` a mounted `ROOM_DB_PATH` data volume, then drops
+privileges — no manual `chown` needed), and ships a `HEALTHCHECK` that polls
+`/api/health` so `restart: unless-stopped` recovers a wedged process.
 
 > **HTTPS is mandatory off `localhost`.** The clipboard UI uses
 > `navigator.clipboard`, which browsers only expose in a *secure context*:

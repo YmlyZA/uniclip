@@ -1097,5 +1097,48 @@ describe("UniclipClient presence", () => {
       client.disconnect();
       await expect(client.connect()).rejects.toThrow(/disposed/i);
     });
+
+    it("disconnect() emits exactly one disconnected status when the socket is open", async () => {
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      const statuses: string[] = [];
+      client.on("status", (s: string) => statuses.push(s));
+      await client.connect();
+      const ws = MockWebSocket.instances.at(-1)!;
+      ws.emit({ type: "hello", roomId: "qx7k2p", peerCount: 1, serverTime: 0, backfill: false });
+      // MockWebSocket.close() fires onclose synchronously, so this exercises both
+      // disconnect()'s own emit AND the resulting handleClose(disposed) path in
+      // one call — the two must not both emit.
+      client.disconnect();
+      expect(statuses.filter((s) => s === "disconnected")).toHaveLength(1);
+    });
+
+    it("disconnect() emits disconnected when called while the socket is already null (pending reconnect)", async () => {
+      vi.useFakeTimers();
+      const client = new UniclipClient({
+        roomUrl: "https://uniclip.app/r/qx7k2p#abcdefghijklmnopqr",
+        relayBase: "wss://uniclip.app",
+      });
+      const statuses: string[] = [];
+      client.on("status", (s: string) => statuses.push(s));
+      await client.connect();
+      await vi.advanceTimersByTimeAsync(0); // flush onopen
+      const ws1 = MockWebSocket.instances.at(-1)!;
+
+      // Transient drop: handleClose nulls this.ws and schedules a reconnect timer.
+      ws1.onclose?.(new CloseEvent("close", { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(statuses.at(-1)).toBe("reconnecting");
+
+      // disconnect() runs BEFORE the pending reconnect timer fires — this.ws is
+      // already null here, so `this.ws?.close()` is a no-op and handleClose never
+      // runs. Previously this left the UI stuck on "reconnecting" forever.
+      client.disconnect();
+      expect(statuses.at(-1)).toBe("disconnected");
+      expect(statuses.filter((s) => s === "disconnected")).toHaveLength(1);
+      vi.useRealTimers();
+    });
   });
 });
